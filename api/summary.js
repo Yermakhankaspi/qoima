@@ -1,9 +1,8 @@
 // =============================================================
 //  GET /api/summary
-//  Один запрос, который параллельно запрашивает Kaspi
-//  по всем основным состояниям и возвращает агрегированную
-//  статистику. Используется на дашборде и странице "Продажи".
-//  Требует авторизации.
+//  Параллельные запросы к Kaspi по всем состояниям.
+//  Устойчиво к ошибкам: если один state упал, остальные работают.
+//  Возвращает поле "errors" — в нём ошибки по каждому state.
 // =============================================================
 import { Redis } from '@upstash/redis';
 
@@ -34,28 +33,40 @@ async function getUser(req) {
   } catch { return null; }
 }
 
-async function fetchOrdersByState(token, state, fromMs, toMs) {
+// Запрос с таймаутом и обработкой ошибок
+async function fetchOrdersByState(kaspiToken, stateName, fromMs, toMs) {
   const params = new URLSearchParams({
     'page[number]': '0',
     'page[size]': '100',
-    'filter[orders][state]': state,
+    'filter[orders][state]': stateName,
     'filter[orders][creationDate][$ge]': String(fromMs),
     'filter[orders][creationDate][$le]': String(toMs),
   });
   const url = `https://kaspi.kz/shop/api/v2/orders?${params.toString()}`;
+
+  // Таймаут 7 секунд на запрос (чтобы уложиться в общий лимит Vercel 10с)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+
   try {
     const r = await fetch(url, {
       headers: {
         'Accept': 'application/vnd.api+json',
         'Content-Type': 'application/vnd.api+json',
-        'X-Auth-Token': token,
+        'X-Auth-Token': kaspiToken,
       },
+      signal: controller.signal,
     });
-    if (!r.ok) return [];
+    clearTimeout(timer);
+
+    if (!r.ok) {
+      return { state: stateName, orders: [], error: `HTTP ${r.status}` };
+    }
     const data = await r.json();
-    return data.data || [];
-  } catch {
-    return [];
+    return { state: stateName, orders: data.data || [], error: null };
+  } catch (e) {
+    clearTimeout(timer);
+    return { state: stateName, orders: [], error: e.name === 'AbortError' ? 'timeout' : e.message };
   }
 }
 
@@ -70,21 +81,22 @@ export default async function handler(req, res) {
   const now = Date.now();
   const from = now - days * 86_400_000;
 
-  // Параллельно запрашиваем заказы по всем основным состояниям
   const states = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
   const results = await Promise.all(
     states.map(s => fetchOrdersByState(kaspiToken, s, from, now))
   );
 
-  // Объединяем
+  // Собираем ошибки и заказы отдельно
+  const errors = {};
   const allOrders = [];
   const byState = {};
-  states.forEach((s, i) => {
-    byState[s] = results[i].length;
-    allOrders.push(...results[i]);
-  });
+  for (const r of results) {
+    byState[r.state] = r.orders.length;
+    if (r.error) errors[r.state] = r.error;
+    allOrders.push(...r.orders);
+  }
 
-  // Считаем по статусам
+  // Статусы и выручка
   const byStatus = {};
   let totalRevenue = 0;
   let completedRevenue = 0;
@@ -98,7 +110,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Сводка по дням (для страницы "Продажи")
+  // По дням
   const dayMap = {};
   for (const o of allOrders) {
     const a = o.attributes || {};
@@ -111,7 +123,7 @@ export default async function handler(req, res) {
     .map(([date, count]) => ({ date, count }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Последние 20 заказов
+  // Последние заказы
   const recent = [...allOrders]
     .sort((a, b) => (b.attributes?.creationDate || 0) - (a.attributes?.creationDate || 0))
     .slice(0, 20)
@@ -135,5 +147,6 @@ export default async function handler(req, res) {
     completedRevenue,
     byDay,
     recent,
+    errors,  // <-- новое поле: если что-то упало, тут будет инфа
   });
 }
