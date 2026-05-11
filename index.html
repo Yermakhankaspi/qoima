@@ -286,17 +286,19 @@
         </div>
       </div>
 
-      <!-- ЗАКАЗЫ КАСПИ -->
+      <!-- ЗАКАЗЫ КАСПИ — структура как в кабинете продавца Kaspi -->
       <div class="page" id="page-orders">
         <h1 class="page-title">Заказы Каспи</h1>
         <p class="page-subtitle">Клик на заказ — детали и смена статуса</p>
         <div class="tabs" id="orders-tabs" style="margin-bottom: 16px;">
-          <div class="tab active" data-state="NEW">Новые <span class="count" data-count-state="NEW">0</span></div>
-          <div class="tab" data-state="SIGN_REQUIRED">На подписи <span class="count" data-count-state="SIGN_REQUIRED">0</span></div>
-          <div class="tab" data-state="PICKUP">Самовывоз <span class="count" data-count-state="PICKUP">0</span></div>
-          <div class="tab" data-state="DELIVERY">Доставка <span class="count" data-count-state="DELIVERY">0</span></div>
-          <div class="tab" data-state="KASPI_DELIVERY">Kaspi Доставка <span class="count" data-count-state="KASPI_DELIVERY">0</span></div>
-          <div class="tab" data-state="ARCHIVE">Архив <span class="count" data-count-state="ARCHIVE">0</span></div>
+          <div class="tab active" data-bucket="new">Новые <span class="count" data-count="new">0</span></div>
+          <div class="tab" data-bucket="my_delivery">Моя доставка <span class="count" data-count="my_delivery">0</span></div>
+          <div class="tab" data-bucket="sign">На подписании <span class="count" data-count="sign">0</span></div>
+          <div class="tab" data-bucket="pickup">Самовывоз <span class="count" data-count="pickup">0</span></div>
+          <div class="tab" data-bucket="preorder">Предзаказ <span class="count" data-count="preorder">0</span></div>
+          <div class="tab" data-bucket="in_delivery">Переданы на доставку <span class="count" data-count="in_delivery">0</span></div>
+          <div class="tab" data-bucket="cancel_in_delivery">Отменены при доставке <span class="count" data-count="cancel_in_delivery">0</span></div>
+          <div class="tab" data-bucket="archive">Архив <span class="count" data-count="archive">0</span></div>
         </div>
         <div class="card" style="padding: 0; overflow: hidden;">
           <table class="data-table">
@@ -351,9 +353,29 @@
         </div>
       </div>
 
-      <!-- ДРУГИЕ -->
-      <div class="page" id="page-preorders"><h1 class="page-title">Предзаказы</h1><p class="page-subtitle">Будущие заказы</p><div class="card empty">Раздел в разработке.</div></div>
-      <div class="page" id="page-returns"><h1 class="page-title">Возвраты</h1><p class="page-subtitle">Запросы на возврат</p><div class="card empty">Раздел в разработке.</div></div>
+      <!-- ПРЕДЗАКАЗЫ -->
+      <div class="page" id="page-preorders">
+        <h1 class="page-title">Предзаказы</h1>
+        <p class="page-subtitle">Будущие заказы с отложенной датой получения</p>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table class="data-table">
+            <thead><tr><th>Код</th><th>Покупатель</th><th>Создан</th><th>Дата получения</th><th>Сумма</th></tr></thead>
+            <tbody id="preorders-tbody"><tr><td colspan="5" class="empty">загрузка…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ВОЗВРАТЫ -->
+      <div class="page" id="page-returns">
+        <h1 class="page-title">Возвраты</h1>
+        <p class="page-subtitle">Заказы с запросом возврата от покупателя</p>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table class="data-table">
+            <thead><tr><th>Код</th><th>Покупатель</th><th>Дата</th><th>Сумма</th><th>Статус</th></tr></thead>
+            <tbody id="returns-tbody"><tr><td colspan="5" class="empty">загрузка…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
       <div class="page" id="page-ai"><h1 class="page-title">ИИ Консультант</h1><p class="page-subtitle">Помощник по продажам</p><div class="card empty">Раздел в разработке.</div></div>
       <div class="page" id="page-tools"><h1 class="page-title">Инструменты</h1><p class="page-subtitle">Утилиты для работы с Kaspi</p><div class="card empty">Скоро.</div></div>
 
@@ -484,10 +506,55 @@
       currentPage: 'dashboard',
       days: 30,
       summary: null,
-      ordersByState: {},
-      currentOrdersTab: 'NEW',
+      ordersByState: {},     // кеш заказов по Kaspi-state (NEW/PICKUP/etc)
+      ordersByBucket: {},    // отсортированные по нашим вкладкам
+      currentBucket: 'new',
       warehouse: null,
     };
+
+    const BUCKET_LABEL = {
+      new: 'Новые',
+      my_delivery: 'Моя доставка',
+      sign: 'На подписании',
+      pickup: 'Самовывоз',
+      preorder: 'Предзаказ',
+      in_delivery: 'Переданы на доставку',
+      cancel_in_delivery: 'Отменены при доставке',
+      archive: 'Архив',
+    };
+
+    // Распределение одного заказа по «корзинам» (вкладкам Kaspi)
+    // По официальной справке Kaspi:
+    //   - Новые: статус APPROVED_BY_BANK (ещё не принят магазином)
+    //   - Моя доставка: state=DELIVERY (не KASPI_DELIVERY)
+    //   - На подписании: state=SIGN_REQUIRED
+    //   - Самовывоз: state=PICKUP, статус ACCEPTED_BY_MERCHANT/ASSEMBLED
+    //   - Предзаказ: preOrder=true ИЛИ plannedDeliveryDate в будущем
+    //   - Переданы на доставку: state=KASPI_DELIVERY, статус PACKAGE_REGISTERED/HANDED_OVER_TO_COURIER/DELIVERED
+    //   - Отменены при доставке: state=KASPI_DELIVERY, статус CANCELLING / RETURN_*
+    //   - Архив: state=ARCHIVE
+    function bucketFor(order) {
+      const a = order.attributes || {};
+      const s = a.state;
+      const st = a.status;
+      const isPreorder = a.preOrder === true ||
+        (a.plannedDeliveryDate && a.plannedDeliveryDate > Date.now() + 86_400_000);
+
+      if (isPreorder && s !== 'ARCHIVE') return 'preorder';
+      if (s === 'ARCHIVE') return 'archive';
+      if (st === 'APPROVED_BY_BANK') return 'new';
+      if (s === 'SIGN_REQUIRED') return 'sign';
+      if (s === 'PICKUP') return 'pickup';
+      if (s === 'DELIVERY') return 'my_delivery';
+      if (s === 'KASPI_DELIVERY') {
+        if (st === 'CANCELLING' || st === 'CANCELLED' ||
+            (st && st.startsWith('RETURN_')) || st === 'RETURNED') {
+          return 'cancel_in_delivery';
+        }
+        return 'in_delivery';
+      }
+      return 'archive';
+    }
 
     const PAGE_TITLES = {
       ai: 'ИИ Консультант', dashboard: 'Дашборд', orders: 'Заказы Каспи',
@@ -501,9 +568,9 @@
 
     document.querySelectorAll('#orders-tabs .tab').forEach(t => {
       t.addEventListener('click', () => {
-        state.currentOrdersTab = t.dataset.state;
+        state.currentBucket = t.dataset.bucket;
         document.querySelectorAll('#orders-tabs .tab').forEach(x => x.classList.toggle('active', x === t));
-        loadOrdersByState(state.currentOrdersTab);
+        renderBucketTable(state.currentBucket);
       });
     });
 
@@ -512,21 +579,24 @@
       document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
       document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
       document.getElementById('topbar-title').textContent = PAGE_TITLES[page] || '';
-      if (page === 'orders') loadOrdersByState(state.currentOrdersTab);
+      if (page === 'orders') loadAllOrdersForBuckets();
       if (page === 'packing') loadPacking();
       if (page === 'warehouse') loadWarehouse();
+      if (page === 'preorders') loadPreorders();
+      if (page === 'returns') loadReturns();
     }
 
     function changeRange() {
       state.days = parseInt(document.getElementById('range-select').value, 10);
       state.ordersByState = {};
+      state.ordersByBucket = {};
       state.warehouse = null;
       refreshAll();
     }
 
     async function refreshAll() {
       await loadSummary();
-      if (state.currentPage === 'orders') loadOrdersByState(state.currentOrdersTab);
+      if (state.currentPage === 'orders') loadAllOrdersForBuckets();
       if (state.currentPage === 'packing') loadPacking();
       if (state.currentPage === 'warehouse') loadWarehouse();
     }
@@ -560,9 +630,6 @@
       const pb = document.getElementById('nav-packing-badge');
       if (newCount > 0) { ob.style.display = ''; ob.textContent = newCount; } else ob.style.display = 'none';
       if (packingCount > 0) { pb.style.display = ''; pb.textContent = packingCount; } else pb.style.display = 'none';
-      document.querySelectorAll('[data-count-state]').forEach(el => {
-        el.textContent = data.byState[el.dataset.countState] || 0;
-      });
     }
 
     function renderDashboard(data) {
@@ -637,33 +704,71 @@
     }
 
     // ============================================================
-    //  Заказы по состоянию
+    //  Заказы — загружаем ВСЕ состояния и распределяем по корзинам
     // ============================================================
-    async function loadOrdersByState(stateName) {
+    async function loadAllOrdersForBuckets() {
       const tbody = document.getElementById('orders-tbody');
-      if (state.ordersByState[stateName]) {
-        renderOrdersTable(state.ordersByState[stateName]);
+      // Если уже есть кеш по корзинам — просто отрендерим
+      if (Object.keys(state.ordersByBucket).length > 0) {
+        renderBucketCounts();
+        renderBucketTable(state.currentBucket);
         return;
       }
       tbody.innerHTML = '<tr><td colspan="6" class="empty"><span class="spinner"></span> &nbsp;Загрузка…</td></tr>';
-      try {
-        const r = await fetch(`/api/orders?state=${stateName}&days=${state.days}`);
-        const data = await r.json();
-        if (!r.ok) {
-          tbody.innerHTML = `<tr><td colspan="6" class="empty">Ошибка: ${data.error || r.status}</td></tr>`;
-          return;
+
+      const states = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
+      // Параллельно грузим все
+      await Promise.all(states.map(async s => {
+        if (state.ordersByState[s]) return;
+        try {
+          const r = await fetch(`/api/orders?state=${s}&days=${state.days}`);
+          const data = await r.json();
+          state.ordersByState[s] = data.data || [];
+        } catch {
+          state.ordersByState[s] = [];
         }
-        state.ordersByState[stateName] = data.data || [];
-        renderOrdersTable(state.ordersByState[stateName]);
-      } catch {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">Ошибка сети</td></tr>';
+      }));
+
+      // Все заказы в плоский массив с дедупликацией
+      const seen = new Set();
+      const allOrders = [];
+      for (const list of Object.values(state.ordersByState)) {
+        for (const o of list) {
+          if (seen.has(o.id)) continue;
+          seen.add(o.id);
+          allOrders.push(o);
+        }
       }
+
+      // Распределяем по корзинам
+      const buckets = {};
+      for (const key of Object.keys(BUCKET_LABEL)) buckets[key] = [];
+      for (const o of allOrders) {
+        const b = bucketFor(o);
+        if (buckets[b]) buckets[b].push(o);
+      }
+      // Сортируем каждую корзину — новые сверху
+      for (const key of Object.keys(buckets)) {
+        buckets[key].sort((a, b) => (b.attributes?.creationDate || 0) - (a.attributes?.creationDate || 0));
+      }
+      state.ordersByBucket = buckets;
+
+      renderBucketCounts();
+      renderBucketTable(state.currentBucket);
     }
 
-    function renderOrdersTable(orders) {
+    function renderBucketCounts() {
+      document.querySelectorAll('[data-count]').forEach(el => {
+        const list = state.ordersByBucket[el.dataset.count] || [];
+        el.textContent = list.length;
+      });
+    }
+
+    function renderBucketTable(bucketKey) {
+      const orders = state.ordersByBucket[bucketKey] || [];
       const tbody = document.getElementById('orders-tbody');
       if (!orders.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">Заказов нет</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">В категории «${BUCKET_LABEL[bucketKey]}» заказов нет</td></tr>`;
         return;
       }
       tbody.innerHTML = orders.map(o => {
@@ -676,6 +781,65 @@
           <td>${fmtMoney(a.totalPrice)}</td>
           <td><span class="pill ${statusPillClass(a.status)}">${STATUS_RU[a.status] || a.status || '—'}</span></td>
           <td>${a.deliveryMode || '—'}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // ============================================================
+    //  Предзаказы и Возвраты — используют тот же кеш ordersByBucket
+    // ============================================================
+    async function loadPreorders() {
+      const tbody = document.getElementById('preorders-tbody');
+      tbody.innerHTML = '<tr><td colspan="5" class="empty"><span class="spinner"></span> &nbsp;Загрузка…</td></tr>';
+      if (Object.keys(state.ordersByBucket).length === 0) {
+        await loadAllOrdersForBuckets();
+      }
+      const list = state.ordersByBucket.preorder || [];
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Предзаказов нет</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map(o => {
+        const a = o.attributes || {};
+        const cust = a.customer ? ((a.customer.firstName || '') + ' ' + (a.customer.lastName || '')).trim() : '';
+        return `<tr class="clickable" onclick="openOrderModal('${o.id}', '${a.code || ''}', '${a.state || ''}')">
+          <td><b>${a.code || o.id}</b></td>
+          <td>${cust || '—'}</td>
+          <td>${fmtDate(a.creationDate)}</td>
+          <td>${fmtDate(a.plannedDeliveryDate)}</td>
+          <td>${fmtMoney(a.totalPrice)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function loadReturns() {
+      const tbody = document.getElementById('returns-tbody');
+      tbody.innerHTML = '<tr><td colspan="5" class="empty"><span class="spinner"></span> &nbsp;Загрузка…</td></tr>';
+      if (Object.keys(state.ordersByBucket).length === 0) {
+        await loadAllOrdersForBuckets();
+      }
+      // Возвраты — это заказы со статусами RETURN_*, RETURNED, или из вкладки "Отменены при доставке"
+      const allOrders = Object.values(state.ordersByBucket).flat();
+      const seen = new Set();
+      const returns = allOrders.filter(o => {
+        if (seen.has(o.id)) return false;
+        seen.add(o.id);
+        const st = o.attributes?.status || '';
+        return st.startsWith('RETURN_') || st === 'RETURNED';
+      });
+      if (!returns.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Запросов на возврат нет</td></tr>';
+        return;
+      }
+      tbody.innerHTML = returns.map(o => {
+        const a = o.attributes || {};
+        const cust = a.customer ? ((a.customer.firstName || '') + ' ' + (a.customer.lastName || '')).trim() : '';
+        return `<tr class="clickable" onclick="openOrderModal('${o.id}', '${a.code || ''}', '${a.state || ''}')">
+          <td><b>${a.code || o.id}</b></td>
+          <td>${cust || '—'}</td>
+          <td>${fmtDate(a.creationDate)}</td>
+          <td>${fmtMoney(a.totalPrice)}</td>
+          <td><span class="pill pill-cancel">${STATUS_RU[a.status] || a.status || '—'}</span></td>
         </tr>`;
       }).join('');
     }
@@ -893,10 +1057,13 @@
         resultBox.innerHTML = `<div style="color: var(--green); margin-top: 10px;">✓ Статус изменён на «${STATUS_RU[newStatus] || newStatus}». Обновляю данные…</div>`;
         // Сбросим кеш и обновим
         state.ordersByState = {};
+        state.ordersByBucket = {};
         setTimeout(async () => {
           await loadSummary();
-          if (state.currentPage === 'orders') loadOrdersByState(state.currentOrdersTab);
+          if (state.currentPage === 'orders') loadAllOrdersForBuckets();
           if (state.currentPage === 'packing') loadPacking();
+          if (state.currentPage === 'preorders') loadPreorders();
+          if (state.currentPage === 'returns') loadReturns();
           closeOrderModal();
         }, 1200);
       } catch (e) {
