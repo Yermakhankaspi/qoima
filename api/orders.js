@@ -1,82 +1,166 @@
+const { getUser, fetchOrdersByStateChunked } = require('./_lib/shared');
 
-const { getUser, fetchOrdersChunked } = require('./_lib/shared');
+const STATES_TO_LOAD = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
+const FINAL_STATUSES = new Set(['COMPLETED', 'CANCELLED', 'CANCELLING', 'RETURNED', 'KASPI_DELIVERY_RETURN_REQUESTED', 'ARRIVED_BACKWARD']);
+const CANCEL_STATUSES = new Set(['CANCELLED', 'CANCELLING', 'RETURNED', 'KASPI_DELIVERY_RETURN_REQUESTED', 'ARRIVED_BACKWARD']);
 
-const ACTIVE_STATUSES = ['APPROVED_BY_BANK','ACCEPTED_BY_MERCHANT','ASSEMBLE','ARRIVED'];
-const CANCEL_STATUSES = ['CANCELLED','CANCELLING','KASPI_DELIVERY_RETURN_REQUESTED','RETURNED','ARRIVED_BACKWARD'];
-function a(o){ return o.attributes || {}; }
-function status(o){ return String(a(o).status || '').toUpperCase(); }
-function state(o){ return String(a(o).state || '').toUpperCase(); }
-function isCancelled(o){ return CANCEL_STATUSES.includes(status(o)) || a(o).returnedToWarehouse === true; }
-function isPreOrder(o){ return a(o).preOrder === true && !isCancelled(o) && !['ASSEMBLE','ARRIVED'].includes(status(o)); }
-function isTransfer(o){ return !isCancelled(o) && status(o)==='ASSEMBLE'; }
-function isTransmitted(o){ return !isCancelled(o) && (status(o)==='ARRIVED' || !!a(o).courierTransmissionDate); }
-function isPacking(o){ return !isCancelled(o) && !isPreOrder(o) && !isTransfer(o) && !isTransmitted(o) && ['ACCEPTED_BY_MERCHANT','APPROVED_BY_BANK'].includes(status(o)); }
-function classify(o){
-  if(isCancelled(o)) return 'deliveryCancelled';
-  if(isPreOrder(o)) return 'preorder';
-  if(isTransfer(o)) return 'transfer';
-  if(isTransmitted(o)) return 'transmitted';
-  if(isPacking(o)) return 'packing';
-  return 'other';
+function upper(value) { return String(value || '').toUpperCase(); }
+function attrs(order) { return order?.attributes || order || {}; }
+function has(value) { return value !== undefined && value !== null && value !== '' && value !== false; }
+
+function isKaspiDelivery(order) {
+  const a = attrs(order);
+  const state = upper(a.state);
+  const deliveryType = upper(a.deliveryType || a.deliveryMode || a.delivery || a.deliveryMethod);
+  return state === 'KASPI_DELIVERY' || deliveryType.includes('KASPI');
 }
-function normalize(o){
-  const x=a(o);
-  const c=x.customer || {};
-  return {
-    id:o.id,
-    code:x.code || o.id,
-    buyer:[c.firstName,c.lastName].filter(Boolean).join(' ') || x.customerName || '—',
-    date:x.creationDate || 0,
-    amount:x.totalPrice || 0,
-    state:x.state || '',
-    status:x.status || '',
-    delivery:x.deliveryMode || x.deliveryType || '',
-    city:x.deliveryAddress?.city || x.customer?.city || '',
-    preOrder:!!x.preOrder,
-    reservationDate:x.reservationDate || null,
-    plannedDeliveryDate:x.plannedDeliveryDate || null,
-    courierTransmissionPlanningDate:x.courierTransmissionPlanningDate || null,
-    courierTransmissionDate:x.courierTransmissionDate || null,
-    returnedToWarehouse:!!x.returnedToWarehouse,
-    category:classify(o),
-    raw:o
-  };
+
+function isPreOrderFlag(order) {
+  const a = attrs(order);
+  return a.preOrder === true || a.preorder === true || a.isPreOrder === true || upper(a.preOrder) === 'TRUE';
 }
-async function loadAll(days){
-  const now=Date.now(); const from=now-days*86400000;
-  const filters=[
-    {state:'NEW'}, {state:'SIGN_REQUIRED'}, {state:'PICKUP'}, {state:'DELIVERY'}, {state:'KASPI_DELIVERY'}, {state:'ARCHIVE'}
-  ];
-  const results=await Promise.all(filters.map(f=>fetchOrdersChunked({...f,fromMs:from,toMs:now})));
-  const byId=new Map(); let error=null;
-  for(const r of results){ if(r.error && !error) error=r.error; for(const o of r.orders) byId.set(o.id,o); }
-  return {orders:[...byId.values()].map(normalize), error};
+
+function isCancelledDelivery(order) {
+  const a = attrs(order);
+  const status = upper(a.status);
+  return CANCEL_STATUSES.has(status) || a.returnedToWarehouse === true || a.cancelled === true;
 }
-module.exports = async function handler(req,res){
-  const user = await getUser(req);
-  if(!user) return res.status(401).json({error:'Требуется вход'});
-  if(!process.env.KASPI_API_TOKEN) return res.status(500).json({error:'KASPI_API_TOKEN не настроен'});
-  const days=Math.max(7, Math.min(parseInt(req.query.days||'30',10) || 30, 365));
-  const tab=String(req.query.tab||'all');
-  try{
-    const {orders,error}=await loadAll(days);
-    const counts={new:0,delivery:0,sign:0,pickup:0,archive:0,preorder:0,packing:0,transfer:0,transmitted:0,deliveryCancelled:0,all:orders.length};
-    for(const o of orders){
-      if(o.state==='NEW' && ACTIVE_STATUSES.includes(o.status)) counts.new++;
-      if(o.state==='DELIVERY' && ACTIVE_STATUSES.includes(o.status)) counts.delivery++;
-      if(o.state==='SIGN_REQUIRED') counts.sign++;
-      if(o.state==='PICKUP' && !CANCEL_STATUSES.includes(o.status)) counts.pickup++;
-      if(o.state==='ARCHIVE') counts.archive++;
-      if(o.state==='KASPI_DELIVERY') counts[o.category]=(counts[o.category]||0)+1;
-      if(o.state!=='KASPI_DELIVERY' && CANCEL_STATUSES.includes(o.status)) counts.deliveryCancelled++;
+
+function hasTransferDocument(order) {
+  const a = attrs(order);
+  return has(a.waybill) || has(a.waybillNumber) || has(a.waybillUrl) || has(a.assemblyDate) || has(a.numberOfSpace);
+}
+
+function hasCourierTransmission(order) {
+  const a = attrs(order);
+  return has(a.courierTransmissionDate) || has(a.transmissionDate) || has(a.kaspiDeliveryDate) || has(a.actualDeliveryDate) || has(a.deliveryDate);
+}
+
+function classifyOrder(order) {
+  const a = attrs(order);
+  const state = upper(a.state);
+  const status = upper(a.status);
+
+  let bucket = 'archive';
+  let reason = '';
+
+  if (state === 'NEW') return mark(order, 'new', 'state=NEW');
+  if (state === 'SIGN_REQUIRED') return mark(order, 'sign', 'state=SIGN_REQUIRED');
+  if (state === 'PICKUP') return mark(order, 'pickup', 'state=PICKUP');
+  if (state === 'DELIVERY') return mark(order, 'delivery', 'state=DELIVERY');
+
+  if (isKaspiDelivery(order)) {
+    if (isCancelledDelivery(order)) return mark(order, 'deliveryCancelled', `cancel status=${status || 'field'}`);
+
+    if (status === 'ASSEMBLE' || status === 'ASSEMBLY' || status === 'TRANSFER' || hasTransferDocument(order)) {
+      return mark(order, 'transfer', `transfer status/document=${status || 'waybill'}`);
     }
-    let data=orders;
-    if(tab==='new') data=orders.filter(o=>o.state==='NEW' && ACTIVE_STATUSES.includes(o.status));
-    else if(tab==='delivery') data=orders.filter(o=>o.state==='DELIVERY' && ACTIVE_STATUSES.includes(o.status));
-    else if(tab==='sign') data=orders.filter(o=>o.state==='SIGN_REQUIRED');
-    else if(tab==='pickup') data=orders.filter(o=>o.state==='PICKUP' && !CANCEL_STATUSES.includes(o.status));
-    else if(tab==='archive') data=orders.filter(o=>o.state==='ARCHIVE');
-    else if(['preorder','packing','transfer','transmitted','deliveryCancelled'].includes(tab)) data=orders.filter(o=>o.state==='KASPI_DELIVERY' && o.category===tab);
-    return res.status(200).json({data,counts,error,debug:orders.map(o=>({code:o.code,state:o.state,status:o.status,category:o.category,preOrder:o.preOrder,planned:o.courierTransmissionPlanningDate,transmitted:o.courierTransmissionDate,returned:o.returnedToWarehouse})).slice(0,30)});
-  }catch(e){ return res.status(500).json({error:e.message}); }
+
+    if (status === 'ARRIVED' || status === 'ACCEPTED_BY_MERCHANT' || status === 'ON_DELIVERY' || status === 'DELIVERING' || status === 'SHIPPED' || hasCourierTransmission(order)) {
+      return mark(order, 'transmitted', `transmitted status/date=${status || 'courierTransmissionDate'}`);
+    }
+
+    if (isPreOrderFlag(order) && !FINAL_STATUSES.has(status)) {
+      return mark(order, 'preorder', `preOrder=true status=${status || '-'}`);
+    }
+
+    if (status === 'APPROVED_BY_BANK' || !FINAL_STATUSES.has(status)) {
+      return mark(order, 'packing', `packing status=${status || '-'}`);
+    }
+  }
+
+  if (state === 'ARCHIVE') return mark(order, 'archive', 'state=ARCHIVE');
+  return mark(order, bucket, reason || `fallback state=${state} status=${status}`);
+}
+
+function mark(order, bucket, reason) {
+  order.__bucket = bucket;
+  order.__bucketReason = reason;
+  return bucket;
+}
+
+function getAmount(order) {
+  const a = attrs(order);
+  return Number(a.totalPrice ?? a.amount ?? a.price ?? 0) || 0;
+}
+
+function getDate(order) {
+  const a = attrs(order);
+  return Number(a.creationDate || a.createdAt || a.date || 0) || 0;
+}
+
+function dedupe(orders) {
+  const seen = new Set();
+  return orders.filter((order) => {
+    const id = order.id || attrs(order).code;
+    if (!id) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+module.exports = async function handler(req, res) {
+  const user = await getUser(req);
+  if (!user) return res.status(401).json({ error: 'Требуется вход' });
+  if (!process.env.KASPI_API_TOKEN) return res.status(500).json({ error: 'KASPI_API_TOKEN не настроен' });
+
+  const tab = String(req.query.tab || 'transmitted');
+  const days = Math.max(1, Math.min(parseInt(req.query.days || '30', 10), 120));
+  const now = Date.now();
+  const from = now - days * 86_400_000;
+
+  try {
+    const loaded = await Promise.all(STATES_TO_LOAD.map(async (state) => {
+      const result = await fetchOrdersByStateChunked(state, from, now);
+      return { state, ...result };
+    }));
+
+    let firstError = null;
+    let all = [];
+    for (const part of loaded) {
+      all.push(...(part.orders || []));
+      if (part.error && !firstError) firstError = `${part.state}: ${part.error}`;
+    }
+
+    all = dedupe(all);
+    for (const order of all) classifyOrder(order);
+
+    const counts = {
+      new: 0,
+      delivery: 0,
+      sign: 0,
+      pickup: 0,
+      preorder: 0,
+      packing: 0,
+      transfer: 0,
+      transmitted: 0,
+      deliveryCancelled: 0,
+      archive: 0,
+    };
+
+    for (const order of all) counts[order.__bucket] = (counts[order.__bucket] || 0) + 1;
+
+    const data = all
+      .filter((order) => order.__bucket === tab)
+      .sort((a, b) => getDate(b) - getDate(a));
+
+    const activeBuckets = ['new', 'delivery', 'sign', 'pickup', 'preorder', 'packing', 'transfer', 'transmitted', 'deliveryCancelled'];
+    const activeOrders = all.filter((order) => activeBuckets.includes(order.__bucket));
+    const dashboardSample = all.slice().sort((a, b) => getDate(b) - getDate(a)).slice(0, 8);
+
+    return res.status(200).json({
+      data,
+      counts,
+      dashboard: {
+        total: activeOrders.length + counts.archive,
+        revenue: all.reduce((sum, order) => sum + getAmount(order), 0),
+        sample: dashboardSample,
+      },
+      error: firstError,
+      rangeText: `Загружено из Kaspi API: ${all.length} заказов за ${days} дней. Вкладки считаются на сервере по state/status/preOrder.`
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Ошибка загрузки Kaspi: ' + error.message });
+  }
 };
