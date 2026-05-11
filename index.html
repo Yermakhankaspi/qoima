@@ -646,17 +646,16 @@
 
   <script>
     const tabs = [
-      { key:"new", label:"Новые", apiState:"NEW" },
-      { key:"delivery", label:"Моя доставка", apiState:"DELIVERY" },
-      { key:"sign", label:"На подписании", apiState:"SIGN_REQUIRED" },
-      { key:"pickup", label:"Самовывоз", apiState:"PICKUP" },
-      { key:"preorder", label:"Предзаказ", apiState:"PREORDER", statusIncludes:["PREORDER","PRE_ORDER","KASPI_DELIVERY_PREORDER"] },
-      { key:"transmitted", label:"Переданы на доставку", apiState:"KASPI_DELIVERY", statusIncludes:["KASPI_DELIVERY_TRANSMITTED","TRANSMITTED"] },
-      { key:"deliveryCancelled", label:"Отменены при доставке", apiState:"KASPI_DELIVERY", statusIncludes:["KASPI_DELIVERY_CANCELED","KASPI_DELIVERY_CANCELLED","CANCELLED","CANCELED"] },
-      { key:"archive", label:"Архив", apiState:"ARCHIVE" },
-
-      { key:"packing", label:"Упаковка", apiState:"KASPI_DELIVERY", statusIncludes:["KASPI_DELIVERY_PACKAGING","PACKAGING","PACKING"] },
-      { key:"transfer", label:"Передача", apiState:"KASPI_DELIVERY", statusIncludes:["KASPI_DELIVERY_TRANSFER","TRANSFER"] },
+      { key:"new", label:"Новые" },
+      { key:"delivery", label:"Моя доставка" },
+      { key:"sign", label:"На подписании" },
+      { key:"pickup", label:"Самовывоз" },
+      { key:"preorder", label:"Предзаказ" },
+      { key:"transmitted", label:"Переданы на доставку" },
+      { key:"deliveryCancelled", label:"Отменены при доставке" },
+      { key:"archive", label:"Архив" },
+      { key:"packing", label:"Упаковка" },
+      { key:"transfer", label:"Передача" },
     ];
 
     const statusLabels = {
@@ -664,27 +663,26 @@
       SIGN_REQUIRED:"На подписании",
       PICKUP:"Самовывоз",
       DELIVERY:"Моя доставка",
-      KASPI_DELIVERY:"Kaspi доставка",
+      KASPI_DELIVERY:"Kaspi Доставка",
       ARCHIVE:"Архив",
       APPROVED_BY_BANK:"Одобрен банком",
       ACCEPTED_BY_MERCHANT:"Принят",
       COMPLETED:"Выдан",
       CANCELLED:"Отменен",
       CANCELED:"Отменен",
-      KASPI_DELIVERY_TRANSMITTED:"Передан на доставку",
-      KASPI_DELIVERY_CANCELED:"Отменен при доставке",
-      KASPI_DELIVERY_CANCELLED:"Отменен при доставке",
-      KASPI_DELIVERY_PACKAGING:"Упаковка",
-      KASPI_DELIVERY_TRANSFER:"Передача",
-      KASPI_DELIVERY_RETURN_REQUESTED:"Запрос возврата"
+      CANCELLING:"В процессе отмены",
+      KASPI_DELIVERY_RETURN_REQUESTED:"Ожидает возврата",
+      RETURNED:"Возвращен"
     };
 
     const deliveryLabels = {
       DELIVERY_PICKUP:"Самовывоз",
-      DELIVERY_LOCAL:"Доставка продавца",
-      DELIVERY_REGIONAL_PICKUP:"Региональный самовывоз",
+      DELIVERY_LOCAL:"Доставка по городу",
+      DELIVERY_REGIONAL_PICKUP:"Самовывоз по области",
       DELIVERY_REGIONAL_TODOOR:"Доставка до двери",
-      KASPI_DELIVERY:"Kaspi доставка"
+      KASPI_DELIVERY:"Kaspi Доставка",
+      DELIVERY:"Доставка",
+      PICKUP:"Самовывоз"
     };
 
     let activeTab = "transmitted";
@@ -696,7 +694,7 @@
       buildTabs();
       bindNav();
       await checkAuth();
-      await loadActiveOrders();
+      await loadActiveOrders(true);
     });
 
     async function checkAuth(){
@@ -777,10 +775,8 @@
     }
 
     async function loadActiveOrders(force=false){
-      const tab = tabs.find(t => t.key === activeTab) || tabs[0];
       const days = document.getElementById("daysSelect").value || "30";
-      const cacheKey = `${tab.apiState}:${days}`;
-
+      const cacheKey = `${activeTab}:${days}`;
       const rows = document.getElementById("ordersRows");
       rows.innerHTML = `<tr><td colspan="6" class="loading">загрузка…</td></tr>`;
 
@@ -789,46 +785,52 @@
         if(!force && cache[cacheKey]){
           orders = cache[cacheKey];
         }else{
-          const r = await fetch(`/api/orders?state=${encodeURIComponent(tab.apiState)}&days=${encodeURIComponent(days)}`, { credentials:"include" });
+          const r = await fetch(`/api/orders?tab=${encodeURIComponent(activeTab)}&days=${encodeURIComponent(days)}`, { credentials:"include" });
           const json = await r.json().catch(() => ({}));
           if(!r.ok) throw new Error(json.error || `Ошибка API ${r.status}`);
+          if(json.error) console.warn("Kaspi API warning:", json.error);
           orders = Array.isArray(json.data) ? json.data : [];
           cache[cacheKey] = orders;
         }
 
-        refreshAllKnownCounts();
-        currentOrders = filterByTab(orders, tab);
+        currentOrders = orders;
         refreshCities(currentOrders);
         renderOrders();
         updateDashboard(currentOrders);
+        await loadCounts(force);
       }catch(e){
         rows.innerHTML = `<tr><td colspan="6" class="error">Ошибка загрузки: ${escapeHtml(e.message || "неизвестная ошибка")}</td></tr>`;
       }
     }
 
-    function filterByTab(orders, tab){
-      if(!tab.statusIncludes || !tab.statusIncludes.length) return orders;
-      return orders.filter(o => {
-        const status = String(getAttr(o, "status") || "").toUpperCase();
-        const state = String(getAttr(o, "state") || "").toUpperCase();
-        return tab.statusIncludes.some(s => status.includes(s) || state.includes(s));
-      });
+    async function loadCounts(force=false){
+      const days = document.getElementById("daysSelect").value || "30";
+      const countKeys = tabs.map(t => t.key);
+
+      await Promise.all(countKeys.map(async key => {
+        const countCacheKey = `count:${key}:${days}`;
+        if(!force && cache[countCacheKey] !== undefined){
+          setCount(key, cache[countCacheKey]);
+          return;
+        }
+
+        try{
+          const r = await fetch(`/api/orders?tab=${encodeURIComponent(key)}&days=${encodeURIComponent(days)}&countOnly=1`, { credentials:"include" });
+          const json = await r.json().catch(() => ({}));
+          const count = typeof json.count === "number" ? json.count : (Array.isArray(json.data) ? json.data.length : 0);
+          cache[countCacheKey] = count;
+          setCount(key, count);
+        }catch(e){
+          console.warn("Count error", key, e);
+        }
+      }));
+
+      const total = countKeys.reduce((sum, key) => sum + Number(cache[`count:${key}:${days}`] || 0), 0);
+      document.getElementById("sideOrdersCount").textContent = total;
     }
 
-    function refreshAllKnownCounts(){
-      const days = document.getElementById("daysSelect").value || "30";
-      const allLoaded = [];
-      Object.entries(cache).forEach(([key, orders]) => {
-        if(key.endsWith(":" + days)) allLoaded.push(...orders);
-      });
-
-      tabs.forEach(tab => {
-        const raw = cache[`${tab.apiState}:${days}`] || allLoaded;
-        const count = filterByTab(raw, tab).length;
-        document.querySelectorAll(`[data-count="${tab.key}"]`).forEach(el => el.textContent = count);
-      });
-
-      document.getElementById("sideOrdersCount").textContent = allLoaded.length || currentOrders.length || 0;
+    function setCount(key, value){
+      document.querySelectorAll(`[data-count="${key}"]`).forEach(el => el.textContent = value);
     }
 
     function refreshCities(orders){
@@ -871,12 +873,13 @@
 
       if(!list.length){
         rows.innerHTML = `<tr><td colspan="6" class="empty">По заданным критериям не найдено ни одного заказа</td></tr>`;
+        window.__renderedOrders = [];
         return;
       }
 
       rows.innerHTML = list.map((o, index) => {
         const status = getStatus(o);
-        const cls = status.includes("CANCEL") || status.includes("CANCE") ? "red" : status.includes("COMPLETED") ? "green" : "";
+        const cls = status.includes("CANCEL") || status.includes("CANCE") || status.includes("RETURN") ? "red" : status.includes("COMPLETED") ? "green" : "";
         return `
           <tr onclick="openOrder(${index})">
             <td class="code">${escapeHtml(getCode(o))}</td>
@@ -894,8 +897,8 @@
 
     function updateDashboard(orders){
       const total = orders.length;
-      const cancelled = orders.filter(o => String(getStatus(o)).includes("CANCEL")).length;
-      const transmitted = orders.filter(o => String(getStatus(o)).includes("TRANSMITTED")).length;
+      const cancelled = orders.filter(o => ["CANCELLED", "CANCELED", "CANCELLING", "RETURNED", "KASPI_DELIVERY_RETURN_REQUESTED"].includes(getStatus(o))).length;
+      const transmitted = orders.filter(o => Boolean(getAttr(o, "courierTransmissionDate"))).length;
       const revenue = orders.reduce((sum,o) => sum + Number(getAmount(o) || 0), 0);
 
       document.getElementById("cardTotal").textContent = total;
@@ -931,9 +934,8 @@
       const blob = new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const tab = tabs.find(t => t.key === activeTab);
       a.href = url;
-      a.download = `qoima-${tab ? tab.key : "orders"}.csv`;
+      a.download = `qoima-${activeTab}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -955,6 +957,8 @@
         ["Статус", statusLabels[getStatus(order)] || getStatus(order) || "—"],
         ["Доставка", deliveryLabels[getDelivery(order)] || getDelivery(order) || "—"],
         ["Город", getCity(order) || "—"],
+        ["Предзаказ", getAttr(order, "preOrder") ? "Да" : "Нет"],
+        ["Передан курьеру", getAttr(order, "courierTransmissionDate") ? formatDate(new Date(getAttr(order, "courierTransmissionDate"))) : "Нет"],
         ["ID", order.id || "—"]
       ];
 
@@ -1029,5 +1033,6 @@
       }[s]));
     }
   </script>
+
 </body>
 </html>

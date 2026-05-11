@@ -32,10 +32,12 @@ async function getUser(req) {
 async function kaspiFetch(path, opts = {}) {
   const token = process.env.KASPI_API_TOKEN;
   if (!token) throw new Error("KASPI_API_TOKEN не настроен");
+
   const url = path.startsWith("http") ? path : `https://kaspi.kz/shop/api/v2${path}`;
-  const timeoutMs = opts.timeoutMs || 7000;
+  const timeoutMs = opts.timeoutMs || 10000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const response = await fetch(url, {
       method: opts.method || "GET",
@@ -48,6 +50,7 @@ async function kaspiFetch(path, opts = {}) {
       body: opts.body ? JSON.stringify(opts.body) : undefined,
       signal: controller.signal,
     });
+
     clearTimeout(timer);
     const text = await response.text();
     let data;
@@ -59,41 +62,62 @@ async function kaspiFetch(path, opts = {}) {
   }
 }
 
-async function fetchOrdersByState(state, fromMs, toMs, page = 0, size = 100) {
-  const params = new URLSearchParams({
-    "page[number]": String(page),
-    "page[size]": String(size),
-    "filter[orders][state]": state,
-    "filter[orders][creationDate][$ge]": String(fromMs),
-    "filter[orders][creationDate][$le]": String(toMs),
+async function fetchOrders(params) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
   });
-  const result = await kaspiFetch(`/orders?${params.toString()}`);
-  if (!result.ok) return { orders: [], error: result.error || `HTTP ${result.status}` };
-  return { orders: result.data.data || [], meta: result.data.meta, error: null };
-}
 
-async function fetchOrdersByStateChunked(state, fromMs, toMs) {
-  const WEEK = 7 * 86_400_000;
-  const chunks = [];
-  for (let t = fromMs; t < toMs; t += WEEK) chunks.push([t, Math.min(t + WEEK, toMs)]);
-  const results = await Promise.all(chunks.map(async ([from, to]) => {
-    const all = [];
-    let firstError = null;
-    for (let page = 0; page < 3; page++) {
-      const result = await fetchOrdersByState(state, from, to, page, 100);
-      if (result.error) { firstError = result.error; break; }
-      all.push(...result.orders);
-      if (result.orders.length < 100) break;
-    }
-    return { orders: all, error: firstError };
-  }));
-  const allOrders = [];
-  let firstError = null;
-  for (const result of results) {
-    allOrders.push(...result.orders);
-    if (result.error && !firstError) firstError = result.error;
+  const result = await kaspiFetch(`/orders?${query.toString()}`);
+  if (!result.ok) {
+    return { orders: [], meta: null, error: result.error || result.data?.message || result.data?.raw || `HTTP ${result.status}` };
   }
-  return { orders: allOrders, error: firstError };
+  return { orders: result.data?.data || [], meta: result.data?.meta || null, error: null };
 }
 
-module.exports = { getRedis, parseCookies, getUser, kaspiFetch, fetchOrdersByState, fetchOrdersByStateChunked };
+async function fetchOrdersChunked(baseParams, fromMs, toMs, options = {}) {
+  const chunkDays = options.chunkDays || 7;
+  const pageLimit = options.pageLimit || 5;
+  const pageSize = options.pageSize || 100;
+  const chunkMs = chunkDays * 86_400_000;
+  const chunks = [];
+
+  for (let t = fromMs; t < toMs; t += chunkMs) chunks.push([t, Math.min(t + chunkMs, toMs)]);
+
+  const results = await Promise.all(chunks.map(async ([from, to]) => {
+    const collected = [];
+    let firstError = null;
+    for (let page = 0; page < pageLimit; page++) {
+      const result = await fetchOrders({
+        "page[number]": page,
+        "page[size]": pageSize,
+        "filter[orders][creationDate][$ge]": from,
+        "filter[orders][creationDate][$le]": to,
+        "include[orders]": "user",
+        ...baseParams,
+      });
+      if (result.error) { firstError = result.error; break; }
+      collected.push(...result.orders);
+      if (result.orders.length < pageSize) break;
+    }
+    return { orders: collected, error: firstError };
+  }));
+
+  const seen = new Set();
+  const orders = [];
+  let error = null;
+  for (const result of results) {
+    if (result.error && !error) error = result.error;
+    for (const order of result.orders) {
+      const id = order.id || order.attributes?.code;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      orders.push(order);
+    }
+  }
+
+  orders.sort((a, b) => (b.attributes?.creationDate || 0) - (a.attributes?.creationDate || 0));
+  return { orders, error };
+}
+
+module.exports = { getRedis, parseCookies, getUser, kaspiFetch, fetchOrders, fetchOrdersChunked };
