@@ -1,11 +1,1 @@
-{
-  "name": "qoima-kaspi",
-  "version": "0.2.2",
-  "private": true,
-  "description": "QOIMA — дашборд продавца Kaspi.kz с регистрацией и интеграцией Kaspi Partner API",
-  "engines": { "node": ">=18" },
-  "dependencies": {
-    "@upstash/redis": "^1.34.0",
-    "bcryptjs": "^2.4.3"
-  }
-}
+{"name":"qoima-kaspi","version":"0.3.0","private":true,"engines":{"node":">=18"},"dependencies":{"@upstash/redis":"^1.34.0","bcryptjs":"^2.4.3"}}
