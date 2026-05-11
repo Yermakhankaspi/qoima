@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>QOIMA — Панель продавца Kaspi</title>
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <style>
     :root {
       --bg: #0a0a0b;
       --sidebar: #111114;
       --panel: #15151a;
+      --panel-hover: #1a1a21;
       --border: #20202a;
       --text: #e8e8ea;
       --text-dim: #6b6b76;
@@ -80,6 +80,7 @@
     }
     .data-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
     .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .data-table tr.clickable { cursor: pointer; }
 
     .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
     .card-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -102,10 +103,15 @@
       background: var(--panel); border: 1px solid var(--border); color: var(--text);
       padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
       display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s;
+      font-family: inherit;
     }
-    .btn:hover { border-color: var(--text-dim); }
+    .btn:hover { border-color: var(--text-dim); background: var(--panel-hover); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 500; }
     .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+    .btn-danger { background: transparent; color: var(--red); border-color: rgba(239,68,68,0.4); }
+    .btn-danger:hover { background: rgba(239,68,68,0.1); border-color: var(--red); }
+    .btn-small { padding: 5px 10px; font-size: 12px; }
 
     .empty { text-align: center; padding: 60px 20px; color: var(--text-dim); }
     .spinner {
@@ -138,6 +144,41 @@
     .range-select {
       background: var(--panel); border: 1px solid var(--border); color: var(--text);
       padding: 6px 10px; border-radius: 6px; font-size: 13px; cursor: pointer;
+      font-family: inherit;
+    }
+
+    /* Модалка с деталями заказа */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center;
+      z-index: 50; padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; max-width: 700px; width: 100%;
+      max-height: 85vh; overflow-y: auto;
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 22px; border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--panel); z-index: 1;
+    }
+    .modal-title { font-size: 17px; font-weight: 600; margin: 0; }
+    .modal-close { cursor: pointer; color: var(--text-dim); padding: 4px; }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { padding: 18px 22px; }
+    .modal-section { margin-bottom: 20px; }
+    .modal-section-title {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-dim); margin-bottom: 10px; font-weight: 600;
+    }
+    .info-grid { display: grid; grid-template-columns: 130px 1fr; gap: 8px 16px; font-size: 13px; }
+    .info-grid .label { color: var(--text-mid); }
+    .info-grid .value { color: var(--text); font-weight: 500; }
+    .action-buttons {
+      display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 0;
+      border-top: 1px solid var(--border); margin-top: 16px;
     }
   </style>
 </head>
@@ -146,7 +187,6 @@
     <aside class="sidebar" style="display:flex; flex-direction:column;">
       <div style="padding: 18px 18px 16px; display:flex; align-items:center; justify-content:space-between; border-bottom: 1px solid var(--border);">
         <div class="logo">QOIMA</div>
-        <i data-lucide="panel-left" class="nav-icon" style="color: var(--text-dim);"></i>
       </div>
       <nav style="flex:1; padding: 12px 10px; display:flex; flex-direction:column; gap: 2px;">
         <div class="nav-item" data-page="ai"><i data-lucide="sparkles" class="nav-icon"></i><span>ИИ Консультант</span></div>
@@ -185,6 +225,7 @@
             <option value="7">За 7 дней</option>
             <option value="14">За 14 дней</option>
             <option value="30" selected>За 30 дней</option>
+            <option value="60">За 60 дней</option>
             <option value="90">За 90 дней</option>
           </select>
           <button class="btn" onclick="refreshAll()">
@@ -194,11 +235,10 @@
         </div>
       </div>
 
-      <!-- ========== ДАШБОРД ========== -->
+      <!-- ДАШБОРД -->
       <div class="page active" id="page-dashboard">
         <h1 class="page-title">Дашборд</h1>
         <p class="page-subtitle">Сводка из Kaspi за выбранный период</p>
-
         <div id="dashboard-banner"></div>
 
         <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px;">
@@ -236,7 +276,9 @@
         </div>
 
         <div class="card" style="padding: 0; overflow: hidden;">
-          <div style="padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 500;">Последние заказы</div>
+          <div style="padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 500;">
+            Последние заказы <span style="color: var(--text-dim); font-weight: 400; font-size: 12px;">(клик для подробностей)</span>
+          </div>
           <table class="data-table">
             <thead><tr><th>Код</th><th>Дата</th><th>Сумма</th><th>Состояние</th><th>Статус</th></tr></thead>
             <tbody id="dashboard-recent-tbody"><tr><td colspan="5" class="empty">загрузка…</td></tr></tbody>
@@ -244,11 +286,10 @@
         </div>
       </div>
 
-      <!-- ========== ЗАКАЗЫ КАСПИ ========== -->
+      <!-- ЗАКАЗЫ КАСПИ -->
       <div class="page" id="page-orders">
         <h1 class="page-title">Заказы Каспи</h1>
-        <p class="page-subtitle">Заказы из Kaspi.kz за выбранный период</p>
-        <div id="orders-banner"></div>
+        <p class="page-subtitle">Клик на заказ — детали и смена статуса</p>
         <div class="tabs" id="orders-tabs" style="margin-bottom: 16px;">
           <div class="tab active" data-state="NEW">Новые <span class="count" data-count-state="NEW">0</span></div>
           <div class="tab" data-state="SIGN_REQUIRED">На подписи <span class="count" data-count-state="SIGN_REQUIRED">0</span></div>
@@ -265,10 +306,10 @@
         </div>
       </div>
 
-      <!-- ========== НА УПАКОВКУ ========== -->
+      <!-- НА УПАКОВКУ -->
       <div class="page" id="page-packing">
         <h1 class="page-title">На упаковку</h1>
-        <p class="page-subtitle">Заказы со статусом ACCEPTED_BY_MERCHANT</p>
+        <p class="page-subtitle">Принятые заказы — нужно собрать и передать в доставку</p>
         <div class="card" style="padding: 0; overflow: hidden;">
           <table class="data-table">
             <thead><tr><th>Код</th><th>Покупатель</th><th>Дата</th><th>Сумма</th><th>Состояние</th></tr></thead>
@@ -277,7 +318,28 @@
         </div>
       </div>
 
-      <!-- ========== ПРОДАЖИ ========== -->
+      <!-- СКЛАД -->
+      <div class="page" id="page-warehouse">
+        <h1 class="page-title">Склад</h1>
+        <p class="page-subtitle">Товары по продажам за выбранный период</p>
+        <div id="warehouse-banner"></div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Товар</th>
+                <th style="text-align:right;">Заказов</th>
+                <th style="text-align:right;">Продано шт.</th>
+                <th style="text-align:right;">Выручка</th>
+                <th style="text-align:right;">Отменено</th>
+              </tr>
+            </thead>
+            <tbody id="warehouse-tbody"><tr><td colspan="5" class="empty">Откройте вкладку «Склад» для загрузки</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ПРОДАЖИ -->
       <div class="page" id="page-sales">
         <h1 class="page-title">Продажи</h1>
         <p class="page-subtitle">Количество заказов по дням</p>
@@ -289,20 +351,18 @@
         </div>
       </div>
 
-      <!-- ========== ДРУГИЕ СТРАНИЦЫ ========== -->
+      <!-- ДРУГИЕ -->
       <div class="page" id="page-preorders"><h1 class="page-title">Предзаказы</h1><p class="page-subtitle">Будущие заказы</p><div class="card empty">Раздел в разработке.</div></div>
       <div class="page" id="page-returns"><h1 class="page-title">Возвраты</h1><p class="page-subtitle">Запросы на возврат</p><div class="card empty">Раздел в разработке.</div></div>
-      <div class="page" id="page-warehouse"><h1 class="page-title">Склад</h1><p class="page-subtitle">Товары и остатки</p><div class="card empty">Раздел появится после загрузки каталога товаров.</div></div>
       <div class="page" id="page-ai"><h1 class="page-title">ИИ Консультант</h1><p class="page-subtitle">Помощник по продажам</p><div class="card empty">Раздел в разработке.</div></div>
       <div class="page" id="page-tools"><h1 class="page-title">Инструменты</h1><p class="page-subtitle">Утилиты для работы с Kaspi</p><div class="card empty">Скоро.</div></div>
 
-      <!-- ========== НАСТРОЙКИ ========== -->
       <div class="page" id="page-settings">
         <h1 class="page-title">Настройки</h1>
         <p class="page-subtitle">Подключение Kaspi API</p>
         <div class="card" style="margin-bottom: 16px;">
           <div style="font-weight: 500; margin-bottom: 10px;">Kaspi API токен</div>
-          <p style="color: var(--text-mid); font-size: 13px; line-height: 1.6; margin: 0 0 12px;">
+          <p style="color: var(--text-mid); font-size: 13px; line-height: 1.6; margin: 0;">
             Токен хранится в переменных окружения Vercel под именем
             <code style="background:var(--bg);padding:2px 6px;border-radius:4px;">KASPI_API_TOKEN</code>.
           </p>
@@ -316,18 +376,34 @@
     </main>
   </div>
 
+  <!-- МОДАЛКА: детали заказа -->
+  <div class="modal-overlay" id="order-modal" onclick="if(event.target===this)closeOrderModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-title">Заказ</h3>
+        <i data-lucide="x" class="modal-close" onclick="closeOrderModal()"></i>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <div class="empty"><span class="spinner"></span></div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // ============================================================
-    //  Названия статусов и состояний на русском
+    //  Константы перевода
     // ============================================================
     const STATUS_RU = {
       APPROVED_BY_BANK: 'Одобрен банком',
       ACCEPTED_BY_MERCHANT: 'Принят',
+      ASSEMBLED: 'Собран',
+      PACKAGE_REGISTERED: 'Посылка зарег.',
+      HANDED_OVER_TO_COURIER: 'Передан курьеру',
+      DELIVERED: 'Доставлен',
       COMPLETED: 'Выдан',
       CANCELLED: 'Отменён',
       CANCELLING: 'Отменяется',
-      KASPI_DELIVERY_RETURN_REQUESTED: 'Запрос возврата',
-      RETURN_ACCEPTED_BY_MERCHANT: 'Возврат принят',
+      RETURN_REQUESTED_FROM_CUSTOMER: 'Возврат запрошен',
       RETURNED: 'Возвращён',
     };
     const STATE_RU = {
@@ -336,16 +412,51 @@
       KASPI_DELIVERY: 'Kaspi доставка', ARCHIVE: 'Архив',
     };
 
+    // Какие действия доступны для каждого статуса
+    // (упрощённая модель; некоторые переходы могут не сработать в зависимости от типа доставки —
+    //  Kaspi вернёт ошибку, мы её покажем)
+    function availableActions(status, state) {
+      const a = [];
+      if (status === 'APPROVED_BY_BANK') {
+        a.push({ status: 'ACCEPTED_BY_MERCHANT', label: 'Принять заказ', primary: true });
+        a.push({ status: 'CANCELLED', label: 'Отменить', danger: true });
+      } else if (status === 'ACCEPTED_BY_MERCHANT') {
+        a.push({ status: 'ASSEMBLED', label: 'Собран', primary: true });
+        a.push({ status: 'CANCELLED', label: 'Отменить', danger: true });
+      } else if (status === 'ASSEMBLED') {
+        if (state === 'KASPI_DELIVERY') {
+          a.push({ status: 'PACKAGE_REGISTERED', label: 'Зарегистрировать посылку', primary: true });
+        } else {
+          a.push({ status: 'HANDED_OVER_TO_COURIER', label: 'Передать курьеру', primary: true });
+        }
+        a.push({ status: 'CANCELLED', label: 'Отменить', danger: true });
+      } else if (status === 'PACKAGE_REGISTERED' || status === 'HANDED_OVER_TO_COURIER') {
+        a.push({ status: 'DELIVERED', label: 'Доставлен', primary: true });
+      } else if (status === 'DELIVERED') {
+        a.push({ status: 'COMPLETED', label: 'Подтвердить выдачу', primary: true });
+      }
+      return a;
+    }
+
     function statusPillClass(st) {
       if (st === 'COMPLETED') return 'pill-done';
       if (st === 'CANCELLED' || st === 'CANCELLING') return 'pill-cancel';
-      if (st === 'ACCEPTED_BY_MERCHANT') return 'pill-pack';
+      if (st === 'ACCEPTED_BY_MERCHANT' || st === 'ASSEMBLED') return 'pill-pack';
       if (st === 'APPROVED_BY_BANK') return 'pill-new';
       return 'pill-delivery';
     }
 
+    function fmtMoney(n) {
+      if (!n && n !== 0) return '—';
+      return n.toLocaleString('ru-RU') + ' ₸';
+    }
+    function fmtDate(ms) {
+      if (!ms) return '—';
+      return new Date(ms).toLocaleString('ru-RU');
+    }
+
     // ============================================================
-    //  АВТОРИЗАЦИЯ
+    //  Авторизация
     // ============================================================
     (async function checkAuth() {
       try {
@@ -367,14 +478,15 @@
     }
 
     // ============================================================
-    //  СОСТОЯНИЕ И НАВИГАЦИЯ
+    //  Состояние и навигация
     // ============================================================
     const state = {
       currentPage: 'dashboard',
       days: 30,
       summary: null,
-      ordersByState: {},  // кеш заказов по state
+      ordersByState: {},
       currentOrdersTab: 'NEW',
+      warehouse: null,
     };
 
     const PAGE_TITLES = {
@@ -400,14 +512,15 @@
       document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
       document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
       document.getElementById('topbar-title').textContent = PAGE_TITLES[page] || '';
-
       if (page === 'orders') loadOrdersByState(state.currentOrdersTab);
       if (page === 'packing') loadPacking();
+      if (page === 'warehouse') loadWarehouse();
     }
 
     function changeRange() {
       state.days = parseInt(document.getElementById('range-select').value, 10);
       state.ordersByState = {};
+      state.warehouse = null;
       refreshAll();
     }
 
@@ -415,19 +528,17 @@
       await loadSummary();
       if (state.currentPage === 'orders') loadOrdersByState(state.currentOrdersTab);
       if (state.currentPage === 'packing') loadPacking();
+      if (state.currentPage === 'warehouse') loadWarehouse();
     }
 
     // ============================================================
-    //  СВОДКА (для дашборда и продаж)
+    //  Сводка
     // ============================================================
     async function loadSummary() {
       try {
         const r = await fetch(`/api/summary?days=${state.days}`);
         const data = await r.json();
-        if (!r.ok) {
-          showBanner(data.error || 'Не удалось загрузить сводку');
-          return;
-        }
+        if (!r.ok) { showBanner(data.error || 'Не удалось загрузить сводку'); return; }
         state.summary = data;
         renderDashboard(data);
         renderSales(data);
@@ -445,21 +556,24 @@
     function renderNavBadges(data) {
       const newCount = data.byState.NEW || 0;
       const packingCount = data.byStatus.ACCEPTED_BY_MERCHANT || 0;
-      const orderBadge = document.getElementById('nav-orders-badge');
-      const packBadge = document.getElementById('nav-packing-badge');
-      if (newCount > 0) { orderBadge.style.display = ''; orderBadge.textContent = newCount; }
-      else orderBadge.style.display = 'none';
-      if (packingCount > 0) { packBadge.style.display = ''; packBadge.textContent = packingCount; }
-      else packBadge.style.display = 'none';
-
-      // Заполнить счётчики на вкладках "Заказы Каспи"
+      const ob = document.getElementById('nav-orders-badge');
+      const pb = document.getElementById('nav-packing-badge');
+      if (newCount > 0) { ob.style.display = ''; ob.textContent = newCount; } else ob.style.display = 'none';
+      if (packingCount > 0) { pb.style.display = ''; pb.textContent = packingCount; } else pb.style.display = 'none';
       document.querySelectorAll('[data-count-state]').forEach(el => {
-        const s = el.dataset.countState;
-        el.textContent = data.byState[s] || 0;
+        el.textContent = data.byState[el.dataset.countState] || 0;
       });
     }
 
     function renderDashboard(data) {
+      const errBox = document.getElementById('dashboard-banner');
+      if (data.errors && Object.keys(data.errors).length > 0) {
+        const errMsg = Object.entries(data.errors).map(([s, e]) => `${STATE_RU[s] || s}: ${e}`).join(' · ');
+        errBox.innerHTML = `<div class="setup-banner">⚠️ Часть данных не загрузилась — ${errMsg}</div>`;
+      } else {
+        errBox.innerHTML = '';
+      }
+
       const completed = data.byStatus.COMPLETED || 0;
       const cancelled = data.byStatus.CANCELLED || 0;
       const total = data.total;
@@ -471,60 +585,45 @@
       document.getElementById('kpi-completed-sub').textContent = `${pct(completed)}% от всех`;
       document.getElementById('kpi-cancelled').textContent = cancelled;
       document.getElementById('kpi-cancelled-sub').textContent = `${pct(cancelled)}% от всех`;
-      document.getElementById('kpi-revenue').textContent =
-        data.completedRevenue ? data.completedRevenue.toLocaleString('ru-RU') + ' ₸' : '0 ₸';
+      document.getElementById('kpi-revenue').textContent = fmtMoney(data.completedRevenue);
       document.getElementById('kpi-revenue-sub').textContent =
-        completed ? `средний чек: ${Math.round(data.completedRevenue / completed).toLocaleString('ru-RU')} ₸` : '—';
+        completed ? `средний чек: ${fmtMoney(Math.round(data.completedRevenue / completed))}` : '—';
 
-      // По состояниям
       const maxState = Math.max(1, ...Object.values(data.byState));
-      const byStateHtml = Object.entries(data.byState)
-        .filter(([, n]) => n > 0)
-        .sort((a, b) => b[1] - a[1])
-        .map(([s, n]) => `
-          <div class="bar-row">
-            <div class="bar-label">${STATE_RU[s] || s}</div>
-            <div class="bar-track"><div class="bar-fill" style="width:${n / maxState * 100}%"></div></div>
-            <div class="bar-value">${n}</div>
-          </div>`).join('');
-      document.getElementById('by-state-chart').innerHTML = byStateHtml || '<div class="empty">нет данных</div>';
+      document.getElementById('by-state-chart').innerHTML = Object.entries(data.byState)
+        .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+        .map(([s, n]) => `<div class="bar-row">
+          <div class="bar-label">${STATE_RU[s] || s}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${n / maxState * 100}%"></div></div>
+          <div class="bar-value">${n}</div></div>`).join('') || '<div class="empty">нет данных</div>';
 
-      // По статусам
       const maxStatus = Math.max(1, ...Object.values(data.byStatus));
-      const byStatusHtml = Object.entries(data.byStatus)
-        .filter(([, n]) => n > 0)
-        .sort((a, b) => b[1] - a[1])
-        .map(([s, n]) => `
-          <div class="bar-row">
-            <div class="bar-label">${STATUS_RU[s] || s}</div>
-            <div class="bar-track"><div class="bar-fill" style="width:${n / maxStatus * 100}%"></div></div>
-            <div class="bar-value">${n}</div>
-          </div>`).join('');
-      document.getElementById('by-status-chart').innerHTML = byStatusHtml || '<div class="empty">нет данных</div>';
+      document.getElementById('by-status-chart').innerHTML = Object.entries(data.byStatus)
+        .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+        .map(([s, n]) => `<div class="bar-row">
+          <div class="bar-label">${STATUS_RU[s] || s}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${n / maxStatus * 100}%"></div></div>
+          <div class="bar-value">${n}</div></div>`).join('') || '<div class="empty">нет данных</div>';
 
-      // Последние заказы
-      const recentTbody = document.getElementById('dashboard-recent-tbody');
+      const tbody = document.getElementById('dashboard-recent-tbody');
       if (!data.recent.length) {
-        recentTbody.innerHTML = '<tr><td colspan="5" class="empty">Нет заказов за период</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Нет заказов</td></tr>';
       } else {
-        recentTbody.innerHTML = data.recent.slice(0, 10).map(o => {
-          const date = o.creationDate ? new Date(o.creationDate).toLocaleString('ru-RU') : '—';
-          const sum = o.totalPrice ? o.totalPrice.toLocaleString('ru-RU') + ' ₸' : '—';
-          return `<tr>
-            <td><b>${o.code || o.id || '—'}</b></td>
-            <td>${date}</td>
-            <td>${sum}</td>
+        tbody.innerHTML = data.recent.slice(0, 10).map(o => `
+          <tr class="clickable" onclick="openOrderModal('${o.id}', '${o.code || ''}', '${o.state || ''}')">
+            <td><b>${o.code || o.id}</b></td>
+            <td>${fmtDate(o.creationDate)}</td>
+            <td>${fmtMoney(o.totalPrice)}</td>
             <td><span class="pill pill-delivery">${STATE_RU[o.state] || o.state || '—'}</span></td>
             <td><span class="pill ${statusPillClass(o.status)}">${STATUS_RU[o.status] || o.status || '—'}</span></td>
-          </tr>`;
-        }).join('');
+          </tr>`).join('');
       }
     }
 
     function renderSales(data) {
       const tbody = document.getElementById('sales-tbody');
       if (!data.byDay.length) {
-        tbody.innerHTML = '<tr><td colspan="2" class="empty">Нет данных за период</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="2" class="empty">Нет данных</td></tr>';
         return;
       }
       tbody.innerHTML = [...data.byDay].reverse().map(({ date, count }) => {
@@ -533,13 +632,12 @@
         const month = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'][d.getMonth()];
         return `<tr>
           <td style="color: var(--text-mid);">${dayName}, ${d.getDate()} ${month}</td>
-          <td style="text-align:right; font-weight: 500;">${count}</td>
-        </tr>`;
+          <td style="text-align:right; font-weight: 500;">${count}</td></tr>`;
       }).join('');
     }
 
     // ============================================================
-    //  Заказы по выбранному состоянию (вкладки)
+    //  Заказы по состоянию
     // ============================================================
     async function loadOrdersByState(stateName) {
       const tbody = document.getElementById('orders-tbody');
@@ -555,10 +653,9 @@
           tbody.innerHTML = `<tr><td colspan="6" class="empty">Ошибка: ${data.error || r.status}</td></tr>`;
           return;
         }
-        const orders = data.data || [];
-        state.ordersByState[stateName] = orders;
-        renderOrdersTable(orders);
-      } catch (e) {
+        state.ordersByState[stateName] = data.data || [];
+        renderOrdersTable(state.ordersByState[stateName]);
+      } catch {
         tbody.innerHTML = '<tr><td colspan="6" class="empty">Ошибка сети</td></tr>';
       }
     }
@@ -571,14 +668,12 @@
       }
       tbody.innerHTML = orders.map(o => {
         const a = o.attributes || {};
-        const date = a.creationDate ? new Date(a.creationDate).toLocaleString('ru-RU') : '—';
-        const sum = a.totalPrice ? a.totalPrice.toLocaleString('ru-RU') + ' ₸' : '—';
-        const cust = a.customer ? (a.customer.firstName || a.customer.name || '') + ' ' + (a.customer.lastName || '') : '—';
-        return `<tr>
-          <td><b>${a.code || o.id || '—'}</b></td>
-          <td>${cust.trim() || '—'}</td>
-          <td>${date}</td>
-          <td>${sum}</td>
+        const cust = a.customer ? ((a.customer.firstName || '') + ' ' + (a.customer.lastName || '')).trim() : '';
+        return `<tr class="clickable" onclick="openOrderModal('${o.id}', '${a.code || ''}', '${a.state || ''}')">
+          <td><b>${a.code || o.id}</b></td>
+          <td>${cust || '—'}</td>
+          <td>${fmtDate(a.creationDate)}</td>
+          <td>${fmtMoney(a.totalPrice)}</td>
           <td><span class="pill ${statusPillClass(a.status)}">${STATUS_RU[a.status] || a.status || '—'}</span></td>
           <td>${a.deliveryMode || '—'}</td>
         </tr>`;
@@ -586,45 +681,241 @@
     }
 
     // ============================================================
-    //  Страница «На упаковку»
+    //  На упаковку
     // ============================================================
     async function loadPacking() {
       const tbody = document.getElementById('packing-tbody');
       tbody.innerHTML = '<tr><td colspan="5" class="empty"><span class="spinner"></span> &nbsp;Загрузка…</td></tr>';
-      // Берём все состояния и фильтруем по статусу ACCEPTED_BY_MERCHANT
-      if (!state.summary) await loadSummary();
       const states = ['NEW', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY'];
-      const allLists = await Promise.all(states.map(async s => {
+      const all = await Promise.all(states.map(async s => {
         if (state.ordersByState[s]) return state.ordersByState[s];
         try {
           const r = await fetch(`/api/orders?state=${s}&days=${state.days}`);
           const d = await r.json();
-          const list = d.data || [];
-          state.ordersByState[s] = list;
-          return list;
+          state.ordersByState[s] = d.data || [];
+          return state.ordersByState[s];
         } catch { return []; }
       }));
-      const all = [].concat(...allLists);
-      const packing = all.filter(o => o.attributes?.status === 'ACCEPTED_BY_MERCHANT');
+      const flat = [].concat(...all);
+      const packing = flat.filter(o => o.attributes?.status === 'ACCEPTED_BY_MERCHANT' || o.attributes?.status === 'ASSEMBLED');
       if (!packing.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty">Нет заказов на упаковку</td></tr>';
         return;
       }
       tbody.innerHTML = packing.map(o => {
         const a = o.attributes || {};
-        const date = a.creationDate ? new Date(a.creationDate).toLocaleString('ru-RU') : '—';
-        const sum = a.totalPrice ? a.totalPrice.toLocaleString('ru-RU') + ' ₸' : '—';
-        const cust = a.customer ? (a.customer.firstName || '') + ' ' + (a.customer.lastName || '') : '—';
-        return `<tr>
-          <td><b>${a.code || o.id || '—'}</b></td>
-          <td>${cust.trim() || '—'}</td>
-          <td>${date}</td>
-          <td>${sum}</td>
+        const cust = a.customer ? ((a.customer.firstName || '') + ' ' + (a.customer.lastName || '')).trim() : '';
+        return `<tr class="clickable" onclick="openOrderModal('${o.id}', '${a.code || ''}', '${a.state || ''}')">
+          <td><b>${a.code || o.id}</b></td>
+          <td>${cust || '—'}</td>
+          <td>${fmtDate(a.creationDate)}</td>
+          <td>${fmtMoney(a.totalPrice)}</td>
           <td><span class="pill pill-delivery">${STATE_RU[a.state] || a.state || '—'}</span></td>
         </tr>`;
       }).join('');
     }
 
+    // ============================================================
+    //  Склад
+    // ============================================================
+    async function loadWarehouse() {
+      const tbody = document.getElementById('warehouse-tbody');
+      const banner = document.getElementById('warehouse-banner');
+      if (state.warehouse) {
+        renderWarehouse(state.warehouse);
+        return;
+      }
+      tbody.innerHTML = '<tr><td colspan="5" class="empty"><span class="spinner"></span> &nbsp;Анализирую заказы (это может занять до 30 секунд)…</td></tr>';
+      banner.innerHTML = '';
+      try {
+        const r = await fetch(`/api/warehouse?days=${state.days}`);
+        const data = await r.json();
+        if (!r.ok) {
+          tbody.innerHTML = `<tr><td colspan="5" class="empty">Ошибка: ${data.error || r.status}</td></tr>`;
+          return;
+        }
+        state.warehouse = data;
+        renderWarehouse(data);
+      } catch {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Ошибка сети</td></tr>';
+      }
+    }
+
+    function renderWarehouse(data) {
+      const banner = document.getElementById('warehouse-banner');
+      if (data.analyzedOrders < data.totalOrders) {
+        banner.innerHTML = `<div class="setup-banner">📦 Проанализировано ${data.analyzedOrders} из ${data.totalOrders} заказов (ограничение Vercel на одного бесплатного тарифа). Это последние заказы. ${data.cached ? '· Данные из кеша' : ''}</div>`;
+      } else if (data.cached) {
+        banner.innerHTML = `<div class="setup-banner" style="background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.3); color: var(--green);">✓ Загружено ${data.totalOrders} заказов · из кеша</div>`;
+      }
+      const tbody = document.getElementById('warehouse-tbody');
+      if (!data.products.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Нет товаров за период</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.products.map(p => `
+        <tr>
+          <td>
+            <div style="font-weight: 500;">${p.name || `ID ${p.productId}`}</div>
+            ${p.brand ? `<div style="color: var(--text-dim); font-size: 12px; margin-top: 2px;">${p.brand}</div>` : ''}
+          </td>
+          <td style="text-align:right;">${p.orders}</td>
+          <td style="text-align:right; color: var(--green); font-weight: 500;">${p.sold}</td>
+          <td style="text-align:right; font-weight: 500;">${fmtMoney(p.revenue)}</td>
+          <td style="text-align:right; color: ${p.cancelled > 0 ? 'var(--red)' : 'var(--text-dim)'};">${p.cancelled}</td>
+        </tr>`).join('');
+    }
+
+    // ============================================================
+    //  Модалка с деталями заказа
+    // ============================================================
+    let currentOrder = null;
+
+    async function openOrderModal(orderId, code, orderState) {
+      currentOrder = { id: orderId, code, state: orderState };
+      document.getElementById('order-modal').classList.add('active');
+      document.getElementById('modal-title').textContent = `Заказ ${code || orderId}`;
+      document.getElementById('modal-body').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+      if (window.lucide) lucide.createIcons();
+
+      // Находим заказ в кеше (для базовой инфы)
+      let order = null;
+      for (const list of Object.values(state.ordersByState)) {
+        const found = list.find(o => o.id === orderId);
+        if (found) { order = found; break; }
+      }
+      if (!order && state.summary) {
+        const found = state.summary.recent.find(o => o.id === orderId);
+        if (found) order = { id: found.id, attributes: found };
+      }
+
+      // Загружаем товары
+      let entries = [];
+      try {
+        const r = await fetch(`/api/order-entries?orderId=${encodeURIComponent(orderId)}`);
+        if (r.ok) {
+          const data = await r.json();
+          entries = data.data || [];
+        }
+      } catch {}
+
+      renderOrderModal(order, entries);
+    }
+
+    function renderOrderModal(order, entries) {
+      const a = order?.attributes || {};
+      const status = a.status;
+      const orderState = a.state || currentOrder.state;
+      const cust = a.customer
+        ? ((a.customer.firstName || '') + ' ' + (a.customer.lastName || '')).trim() + (a.customer.cellPhone ? ` · ${a.customer.cellPhone}` : '')
+        : '—';
+
+      const actions = availableActions(status, orderState);
+
+      document.getElementById('modal-body').innerHTML = `
+        <div class="modal-section">
+          <div class="modal-section-title">Информация</div>
+          <div class="info-grid">
+            <div class="label">Код:</div><div class="value">${a.code || currentOrder.code || '—'}</div>
+            <div class="label">Покупатель:</div><div class="value">${cust}</div>
+            <div class="label">Дата:</div><div class="value">${fmtDate(a.creationDate)}</div>
+            <div class="label">Сумма:</div><div class="value">${fmtMoney(a.totalPrice)}</div>
+            <div class="label">Доставка:</div><div class="value">${a.deliveryMode || '—'} · ${fmtMoney(a.deliveryCost)}</div>
+            <div class="label">Состояние:</div><div class="value"><span class="pill pill-delivery">${STATE_RU[orderState] || orderState || '—'}</span></div>
+            <div class="label">Статус:</div><div class="value"><span class="pill ${statusPillClass(status)}">${STATUS_RU[status] || status || '—'}</span></div>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-title">Товары (${entries.length})</div>
+          ${entries.length === 0
+            ? '<div style="color: var(--text-dim); font-size: 13px;">Не удалось загрузить товары</div>'
+            : `<table class="data-table" style="margin: -4px 0;">
+                <tbody>
+                ${entries.map(e => `
+                  <tr>
+                    <td>
+                      <div style="font-weight: 500;">${e.product?.name || `ID ${e.id}`}</div>
+                      ${e.product?.brand ? `<div style="color: var(--text-dim); font-size: 12px; margin-top: 2px;">${e.product.brand}</div>` : ''}
+                    </td>
+                    <td style="text-align:right; white-space:nowrap;">×${e.quantity || 1}</td>
+                    <td style="text-align:right; white-space:nowrap; font-weight: 500;">${fmtMoney(e.totalPrice)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>`}
+        </div>
+
+        ${actions.length > 0 ? `
+          <div class="modal-section">
+            <div class="modal-section-title">Действия</div>
+            <div class="action-buttons">
+              ${actions.map(act => `
+                <button class="btn ${act.primary ? 'btn-primary' : act.danger ? 'btn-danger' : ''}"
+                        onclick="changeStatus('${act.status}', '${act.label.replace(/'/g, "\\'")}')">
+                  ${act.label}
+                </button>`).join('')}
+            </div>
+          </div>` : ''}
+
+        <div id="status-change-result" style="font-size: 13px;"></div>
+      `;
+    }
+
+    async function changeStatus(newStatus, label) {
+      if (!currentOrder) return;
+      const confirmTxt = newStatus === 'CANCELLED'
+        ? `Точно отменить заказ ${currentOrder.code}?`
+        : `Сменить статус заказа ${currentOrder.code} → «${label}»?`;
+      if (!confirm(confirmTxt)) return;
+
+      const resultBox = document.getElementById('status-change-result');
+      resultBox.innerHTML = '<div style="color: var(--text-dim);"><span class="spinner"></span> Меняю статус…</div>';
+
+      try {
+        const r = await fetch('/api/order-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: currentOrder.id,
+            code: currentOrder.code,
+            status: newStatus,
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          let errDetails = '';
+          if (data.details?.errors) {
+            errDetails = ' — ' + data.details.errors.map(e => e.detail || e.title).join('; ');
+          }
+          resultBox.innerHTML = `<div style="color: var(--red); margin-top: 10px;">✗ Ошибка: ${data.error || r.status}${errDetails}</div>`;
+          return;
+        }
+        resultBox.innerHTML = `<div style="color: var(--green); margin-top: 10px;">✓ Статус изменён на «${STATUS_RU[newStatus] || newStatus}». Обновляю данные…</div>`;
+        // Сбросим кеш и обновим
+        state.ordersByState = {};
+        setTimeout(async () => {
+          await loadSummary();
+          if (state.currentPage === 'orders') loadOrdersByState(state.currentOrdersTab);
+          if (state.currentPage === 'packing') loadPacking();
+          closeOrderModal();
+        }, 1200);
+      } catch (e) {
+        resultBox.innerHTML = `<div style="color: var(--red); margin-top: 10px;">✗ Ошибка сети: ${e.message}</div>`;
+      }
+    }
+
+    function closeOrderModal() {
+      document.getElementById('order-modal').classList.remove('active');
+      currentOrder = null;
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeOrderModal();
+    });
+
+    // ============================================================
+    //  Тест связи
+    // ============================================================
     async function testConnection() {
       const out = document.getElementById('test-result');
       out.innerHTML = '<span class="spinner"></span> &nbsp;Проверяю…';

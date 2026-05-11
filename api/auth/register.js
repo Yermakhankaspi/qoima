@@ -1,60 +1,39 @@
-// =============================================================
-//  POST /api/auth/register
-// =============================================================
-import { Redis } from '@upstash/redis';
+// POST /api/auth/register
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-
-function getRedis() {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null;
-  return new Redis({ url, token });
-}
+import { getRedis } from '../_lib/shared.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
   const redis = getRedis();
-  if (!redis) {
-    return res.status(500).json({
-      error: 'База данных не подключена. Открой /api/diag для диагностики.',
-    });
-  }
+  if (!redis) return res.status(500).json({ error: 'База данных не подключена' });
 
   const { email, password, name } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email и пароль обязательны' });
-  if (password.length < 6) return res.status(400).json({ error: 'Пароль слишком короткий (мин. 6 символов)' });
+  if (password.length < 6) return res.status(400).json({ error: 'Пароль слишком короткий' });
 
   const emailLower = String(email).toLowerCase().trim();
-
   try {
     const existing = await redis.get(`user-by-email:${emailLower}`);
     if (existing) return res.status(400).json({ error: 'Такой email уже зарегистрирован' });
 
     const userId = crypto.randomUUID();
-    const passwordHash = await bcrypt.hash(password, 10);
     const user = {
       id: userId,
       email: emailLower,
       name: name || emailLower.split('@')[0],
-      passwordHash,
+      passwordHash: await bcrypt.hash(password, 10),
       createdAt: Date.now(),
     };
-
     await redis.set(`user:${userId}`, user);
     await redis.set(`user-by-email:${emailLower}`, userId);
 
     const sessionId = crypto.randomUUID();
-    const SESSION_TTL = 60 * 60 * 24 * 30;
-    await redis.set(`session:${sessionId}`, userId, { ex: SESSION_TTL });
-
-    res.setHeader(
-      'Set-Cookie',
-      `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL}`
-    );
+    const TTL = 60 * 60 * 24 * 30;
+    await redis.set(`session:${sessionId}`, userId, { ex: TTL });
+    res.setHeader('Set-Cookie', `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${TTL}`);
     return res.status(200).json({ user: { email: user.email, name: user.name } });
   } catch (err) {
-    return res.status(500).json({ error: 'Ошибка базы данных: ' + err.message });
+    return res.status(500).json({ error: 'Ошибка БД: ' + err.message });
   }
 }
