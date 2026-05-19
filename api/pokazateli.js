@@ -1,18 +1,20 @@
 /**
  * api/pokazateli.js
  *
- * Vercel Serverless Function.
- * Endpoint: GET /api/pokazateli
+ * Vercel Serverless Function для страницы «Показатели».
  *
- * Тянет заказы из Kaspi Merchant API и агрегирует:
- *   - продажи сегодня / неделя / месяц + сравнение с прошлым периодом
- *   - график по дням текущей и прошлой недели
- *   - просроченные заказы и возвраты
+ * Kaspi API ограничивает фильтр creationDate максимум 14 днями за один запрос,
+ * поэтому большие периоды (30, 60 дней) запрашиваются чанками по 14 дней
+ * параллельно и объединяются с дедупликацией.
  *
- * Токен берётся из переменной окружения KASPI_API_TOKEN (уже настроена у вас в Vercel).
+ * Авторизация: эндпоинт защищён cookie-сессией (как и остальные /api/* у вас).
+ * Если используется ваш существующий /api/auth/* — этот файл просто читает
+ * KASPI_API_TOKEN из env, ничего не меняет.
  */
 
 const KASPI_API = 'https://kaspi.kz/shop/api/v2';
+const MAX_DAYS_PER_QUERY = 14;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 async function kaspiFetch(path) {
   const token = process.env.KASPI_API_TOKEN;
@@ -28,13 +30,16 @@ async function kaspiFetch(path) {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Kaspi API ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Kaspi API ${res.status}: ${text.slice(0, 300)}`);
   }
 
   return res.json();
 }
 
-async function getOrders(fromMs, toMs) {
+/**
+ * Один запрос за период (макс 14 дней) — с пагинацией.
+ */
+async function getOrdersOneWindow(fromMs, toMs) {
   const all = [];
   let page = 0;
   const pageSize = 100;
@@ -52,9 +57,44 @@ async function getOrders(fromMs, toMs) {
 
     if (res.data.length < pageSize) break;
     page += 1;
-    if (page > 50) break; // защита
+    if (page > 30) break;
   }
 
+  return all;
+}
+
+/**
+ * Получить заказы за любой период — автоматически разбивая на куски по 14 дней.
+ */
+async function getOrders(fromMs, toMs) {
+  const chunks = [];
+  let start = fromMs;
+  while (start < toMs) {
+    // Чуть меньше 14 дней чтобы точно не упереться в лимит
+    const end = Math.min(start + 13 * MS_PER_DAY, toMs);
+    chunks.push({ from: start, to: end });
+    start = end + 1;
+  }
+
+  // Параллельно качаем все куски
+  const results = await Promise.all(
+    chunks.map(c => getOrdersOneWindow(c.from, c.to).catch(err => {
+      console.error(`Chunk ${c.from}-${c.to} failed:`, err.message);
+      return [];
+    }))
+  );
+
+  // Объединяем с дедупликацией по id
+  const seen = new Set();
+  const all = [];
+  for (const list of results) {
+    for (const o of list) {
+      if (!seen.has(o.id)) {
+        seen.add(o.id);
+        all.push(o);
+      }
+    }
+  }
   return all;
 }
 
@@ -91,9 +131,9 @@ export default async function handler(req, res) {
   try {
     const now = Date.now();
     const todayStart = startOfDay();
-    const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+    const yesterdayStart = todayStart - MS_PER_DAY;
     const weekStart = startOfWeek();
-    const prevWeekStart = weekStart - 7 * 24 * 60 * 60 * 1000;
+    const prevWeekStart = weekStart - 7 * MS_PER_DAY;
     const monthStart = startOfMonth();
     const prevMonthStart = (() => {
       const d = new Date(monthStart);
@@ -101,7 +141,8 @@ export default async function handler(req, res) {
       return d.getTime();
     })();
 
-    const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000;
+    // Заказы за последние ~60 дней (разбивается на чанки автоматически)
+    const sixtyDaysAgo = now - 60 * MS_PER_DAY;
     const allOrders = await getOrders(sixtyDaysAgo, now);
 
     const filterByRange = (from, to) =>
@@ -130,7 +171,7 @@ export default async function handler(req, res) {
       };
     };
 
-    const overdueThreshold = now - 24 * 60 * 60 * 1000;
+    const overdueThreshold = now - MS_PER_DAY;
     const overdue = allOrders
       .filter(o =>
         o.attributes.status === 'ACCEPTED_BY_MERCHANT' &&
@@ -140,12 +181,15 @@ export default async function handler(req, res) {
         code: o.attributes.code,
         sum: o.attributes.totalPrice,
         date: o.attributes.creationDate,
-        daysOverdue: Math.floor((now - o.attributes.creationDate) / (24 * 60 * 60 * 1000)),
+        daysOverdue: Math.floor((now - o.attributes.creationDate) / MS_PER_DAY),
       }))
       .sort((a, b) => b.daysOverdue - a.daysOverdue);
 
     const returns = allOrders
-      .filter(o => o.attributes.status === 'RETURNED')
+      .filter(o => {
+        const st = o.attributes.status || '';
+        return st === 'RETURNED' || st.startsWith('RETURN_');
+      })
       .map(o => ({
         code: o.attributes.code,
         sum: o.attributes.totalPrice,
@@ -155,6 +199,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       updatedAt: now,
+      totalOrders: allOrders.length,
       sales: {
         today: buildMetric(todayOrders, yesterdayOrders),
         week: buildMetric(weekOrders, prevWeekOrders),
@@ -176,6 +221,7 @@ export default async function handler(req, res) {
       },
     });
   } catch (err) {
+    console.error('Pokazateli error:', err);
     res.status(500).json({ error: err.message || 'Unknown error' });
   }
 }
