@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QOIMA — Панель продавца Kaspi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --sidebar: #111114;
+    --panel: #15151a;
+    --panel-2: #1a1a21;
+    --border: #20202a;
+    --text: #e8e8ea;
+    --text-dim: #6b6b76;
+    --text-mid: #9c9ca8;
+    --accent: #f59e0b;
+    --accent-soft: rgba(245, 158, 11, 0.12);
+    --accent-strong: rgba(245, 158, 11, 0.95);
+    --green: #22c55e;
+    --green-soft: rgba(34, 197, 94, 0.12);
+    --red: #ef4444;
+    --red-soft: rgba(239, 68, 68, 0.12);
+    --blue: #3b82f6;
+    --blue-soft: rgba(59, 130, 246, 0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    visibility: hidden;
+  }
+  body.ready { visibility: visible; }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  .layout { display: flex; height: 100vh; }
+  .sidebar {
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
+    width: 240px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .brand {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .nav {
+    flex: 1;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: var(--text-mid);
+    cursor: pointer;
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .nav-item.active { background: var(--accent-soft); color: var(--accent); }
+  .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .nav-badge {
+    margin-left: auto;
+    background: var(--accent);
+    color: #000;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+    min-width: 22px;
+    text-align: center;
+  }
+  .sidebar-footer {
+    padding: 14px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .user-info .name { font-size: 13px; font-weight: 600; }
+  .user-info .role { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .logout-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+  }
+  .logout-btn:hover { color: var(--red); background: rgba(239,68,68,0.08); }
+
+  .main { flex: 1; overflow: auto; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar-title { font-size: 16px; font-weight: 600; }
+
+  .select, .btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .btn { display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover, .select:hover { border-color: var(--text-dim); background: var(--panel-2); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+  .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  .btn-danger { color: var(--red); border-color: rgba(239,68,68,0.4); }
+  .btn-danger:hover { background: rgba(239,68,68,0.1); border-color: var(--red); }
+
+  .page { display: none; padding: 28px; }
+  .page.active { display: block; }
+  .page-title { font-size: 24px; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.01em; }
+  .page-subtitle { color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+
+  /* ============= ПОКАЗАТЕЛИ ============= */
+  .pk-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .pk-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .pk-section-title { font-size: 17px; font-weight: 600; }
+  .pk-sales-grid {
+    display: grid;
+    grid-template-columns: minmax(360px, 1fr) 1.4fr;
+    gap: 40px;
+    align-items: start;
+  }
+  .pk-metric-block { padding: 18px 0; border-bottom: 1px solid var(--border); }
+  .pk-metric-block:first-child { padding-top: 0; }
+  .pk-metric-block:last-child { border-bottom: none; padding-bottom: 0; }
+  .pk-metric-label { font-size: 12px; color: var(--text-mid); margin-bottom: 10px; text-transform: capitalize; font-weight: 500; }
+  .pk-metric-row { display: flex; align-items: baseline; gap: 28px; }
+  .pk-metric-num { display: flex; flex-direction: column; }
+  .pk-value {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .pk-unit { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .pk-metric-change {
+    margin-top: 10px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pk-metric-change.down { color: var(--red); }
+  .pk-metric-change.up { color: var(--green); }
+  .pk-metric-change small { color: var(--text-dim); font-size: 11px; margin-left: 4px; }
+  .pk-arrow { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; }
+  .pk-arrow.down { border-top: 7px solid var(--red); }
+  .pk-arrow.up { border-bottom: 7px solid var(--green); }
+
+  .pk-chart-container { position: relative; height: 280px; padding-left: 50px; padding-bottom: 28px; }
+  .pk-chart-yaxis {
+    position: absolute; left: 0; top: 0; bottom: 28px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim); font-family: monospace;
+    text-align: right; width: 42px;
+  }
+  .pk-chart-svg { width: 100%; height: 100%; }
+  .pk-chart-xaxis {
+    position: absolute; left: 50px; right: 0; bottom: 0;
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim); font-family: monospace;
+  }
+  .pk-chart-legend { display: flex; gap: 16px; margin-top: 14px; padding-left: 50px; }
+  .pk-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-mid); }
+  .pk-legend-line { width: 16px; height: 2px; border-radius: 1px; }
+
+  .pk-twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .pk-overdue-stat { display: flex; gap: 32px; margin-bottom: 20px; }
+  .pk-overdue-stat .pk-value { font-size: 26px; }
+
+  .pk-table-header {
+    display: grid;
+    grid-template-columns: 1fr 100px 90px 60px;
+    padding: 10px 0;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  .pk-table-row {
+    display: grid;
+    grid-template-columns: 1fr 100px 90px 60px;
+    padding: 12px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+  .pk-table-row:last-child { border-bottom: none; }
+  .pk-num { font-family: 'JetBrains Mono', monospace; text-align: right; }
+  .pk-empty { padding: 24px 0; text-align: center; color: var(--text-dim); font-size: 13px; }
+  .pk-footer-info { font-size: 12px; color: var(--text-dim); text-align: center; margin-top: 16px; }
+
+  /* ============= ЗАКАЗЫ ============= */
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+  .tab {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-mid);
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .tab:hover { color: var(--text); border-color: var(--text-dim); }
+  .tab.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+  .tab .count {
+    display: inline-block;
+    margin-left: 6px;
+    background: rgba(0,0,0,0.15);
+    color: inherit;
+    font-size: 11px;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+  .tab:not(.active) .count { background: rgba(255,255,255,0.08); color: var(--text-dim); }
+
+  .table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(255,255,255,0.02);
+  }
+  .data-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr.clickable { cursor: pointer; }
+  .data-table tr.clickable:hover td { background: rgba(255,255,255,0.02); }
+  .data-table tr.row-overdue td:first-child {
+    border-left: 3px solid var(--red);
+    padding-left: 13px;
+  }
+  .data-table tr.row-overdue:hover td { background: rgba(239, 68, 68, 0.04); }
+  .tab.has-overdue { border-color: rgba(239, 68, 68, 0.4); }
+  .tab.has-overdue:not(.active) { color: var(--red); }
+
+  .pill {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .pill-new { background: var(--green-soft); color: var(--green); }
+  .pill-pack { background: var(--accent-soft); color: var(--accent); }
+  .pill-delivery { background: var(--blue-soft); color: var(--blue); }
+  .pill-done { background: rgba(155,155,168,0.12); color: var(--text-mid); }
+  .pill-cancel { background: var(--red-soft); color: var(--red); }
+
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-box {
+    background: var(--red-soft);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--red);
+    padding: 14px 18px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .success-box {
+    background: var(--green-soft);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: var(--green);
+    padding: 14px 18px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+
+  /* ============= НАСТРОЙКИ ============= */
+  .settings-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px;
+    margin-bottom: 14px;
+  }
+  .settings-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+  .settings-card p { color: var(--text-mid); font-size: 13px; line-height: 1.6; }
+  .settings-card code {
+    background: var(--bg);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  /* ============= МОДАЛКА ============= */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    max-width: 680px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+    z-index: 1;
+  }
+  .modal-title { font-size: 17px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 22px;
+    padding: 0 4px;
+    line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 18px 22px; }
+  .info-grid { display: grid; grid-template-columns: 130px 1fr; gap: 10px 16px; font-size: 13.5px; }
+  .info-grid .label { color: var(--text-mid); }
+  .info-grid .value { font-weight: 500; }
+  .modal-section { margin-bottom: 22px; }
+  .modal-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .action-buttons {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 1100px) {
+    .pk-sales-grid { grid-template-columns: 1fr; }
+    .pk-twocol { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .sidebar { width: 200px; }
+    .page { padding: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">QOIMA</div></div>
+    <nav class="nav">
+      <div class="nav-item active" data-page="pokazateli">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+        Показатели
+      </div>
+      <div class="nav-item" data-page="orders">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+        Заказы
+        <span class="nav-badge" id="navBadgeOrders" style="display: none">0</span>
+      </div>
+      <div class="nav-item" data-page="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Настройки
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="name" id="userName">—</div>
+        <div class="role">Менеджер</div>
+      </div>
+      <button class="logout-btn" onclick="logout()" title="Выйти">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbarTitle">Показатели</div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <select class="select" id="periodSelect">
+          <option value="7">За 7 дней</option>
+          <option value="14">За 14 дней</option>
+          <option value="30" selected>За 30 дней</option>
+          <option value="60">За 60 дней</option>
+          <option value="90">За 90 дней</option>
+        </select>
+        <button class="btn" id="refreshBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          Обновить
+        </button>
+      </div>
+    </div>
+
+    <!-- ПОКАЗАТЕЛИ -->
+    <div class="page active" id="page-pokazateli">
+      <h1 class="page-title">Показатели</h1>
+      <p class="page-subtitle">Аналитика продаж из Kaspi</p>
+      <div id="pokazateliContent">
+        <div class="pk-section" style="text-align: center; padding: 60px;">
+          <span class="spinner"></span> &nbsp;Загрузка из Kaspi…
+        </div>
+      </div>
+    </div>
+
+    <!-- ЗАКАЗЫ -->
+    <div class="page" id="page-orders">
+      <h1 class="page-title">Заказы</h1>
+      <p class="page-subtitle">Управление заказами — нажмите на заказ чтобы увидеть детали</p>
+      <div id="ordersContent">
+        <div class="empty"><span class="spinner"></span> &nbsp;Загрузка заказов…</div>
+      </div>
+    </div>
+
+    <!-- НАСТРОЙКИ -->
+    <div class="page" id="page-settings">
+      <h1 class="page-title">Настройки</h1>
+      <p class="page-subtitle">Подключение и проверка</p>
+
+      <div class="settings-card">
+        <h3>Kaspi API токен</h3>
+        <p>Токен хранится в переменных окружения Vercel под именем <code>KASPI_API_TOKEN</code>. Чтобы поменять — зайдите в Vercel → Settings → Environment Variables.</p>
+      </div>
+
+      <div class="settings-card">
+        <h3>Проверка связи</h3>
+        <p style="margin-bottom: 14px;">Нажмите чтобы убедиться что Kaspi отвечает на запросы.</p>
+        <button class="btn btn-primary" onclick="testConnection()">Проверить связь с Kaspi</button>
+        <div id="testResult" style="margin-top: 14px; font-size: 13px;"></div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Безопасность</h3>
+        <p>Доступ к панели защищён паролем <code>ADMIN_PASSWORD</code>. Сессия живёт 30 дней.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Модалка заказа -->
+<div class="modal-overlay" id="orderModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Заказ</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modalBody">
+      <div class="empty"><span class="spinner"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+//   КОНСТАНТЫ И ПЕРЕВОДЫ
+// ================================================================
+const STATUS_RU = {
+  APPROVED_BY_BANK: 'Одобрен банком',
+  ACCEPTED_BY_MERCHANT: 'Принят',
+  ASSEMBLED: 'Собран',
+  PACKAGE_REGISTERED: 'Посылка зарег.',
+  HANDED_OVER_TO_COURIER: 'Передан курьеру',
+  DELIVERED: 'Доставлен',
+  COMPLETED: 'Выдан',
+  CANCELLED: 'Отменён',
+  CANCELLING: 'Отменяется',
+  RETURN_REQUESTED_FROM_CUSTOMER: 'Возврат запрошен',
+  RETURNED: 'Возвращён',
+};
+
+const STATE_RU = {
+  NEW: 'Новый', SIGN_REQUIRED: 'На подписи',
+  PICKUP: 'Самовывоз', DELIVERY: 'Моя доставка',
+  KASPI_DELIVERY: 'Kaspi доставка', ARCHIVE: 'Архив',
+};
+
+const BUCKET_LABEL = {
+  new: 'Новые',
+  packing: 'На упаковке',
+  delivery: 'В доставке',
+  preorder: 'Предзаказы',
+  returns: 'Возвраты',
+  cancelled: 'Отменены',
+  completed: 'Выданы',
+};
+
+const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+// ================================================================
+//   ХЕЛПЕРЫ
+// ================================================================
+function fmtMoney(n) {
+  if (!n && n !== 0) return '—';
+  return n.toLocaleString('ru-RU') + ' ₸';
+}
+function fmtNum(n) {
+  return new Intl.NumberFormat('ru-RU').format(Math.round(n));
+}
+function fmtDate(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString('ru-RU');
+}
+function fmtDateShort(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleDateString('ru-RU');
+}
+function plural(n, forms) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return forms[0];
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return forms[1];
+  return forms[2];
+}
+function statusPill(st) {
+  if (st === 'COMPLETED') return 'pill-done';
+  if (st === 'CANCELLED' || st === 'CANCELLING' || (st || '').startsWith('RETURN') || st === 'RETURNED') return 'pill-cancel';
+  if (st === 'ACCEPTED_BY_MERCHANT' || st === 'ASSEMBLED') return 'pill-pack';
+  if (st === 'APPROVED_BY_BANK') return 'pill-new';
+  return 'pill-delivery';
+}
+function availableActions(status, orderState) {
+  const a = [];
+  if (status === 'APPROVED_BY_BANK') {
+    a.push({ status: 'ACCEPTED_BY_MERCHANT', label: 'Принять заказ', primary: true });
+    a.push({ status: 'CANCELLED', label: 'Отменить', danger: true });
+  } else if (status === 'ACCEPTED_BY_MERCHANT') {
+    a.push({ status: 'ASSEMBLED', label: 'Собран', primary: true });
+    a.push({ status: 'CANCELLED', label: 'Отменить', danger: true });
+  } else if (status === 'ASSEMBLED') {
+    if (orderState === 'KASPI_DELIVERY') {
+      a.push({ status: 'PACKAGE_REGISTERED', label: 'Зарегистрировать посылку', primary: true });
+    } else {
+      a.push({ status: 'HANDED_OVER_TO_COURIER', label: 'Передать курьеру', primary: true });
+    }
+  } else if (status === 'PACKAGE_REGISTERED' || status === 'HANDED_OVER_TO_COURIER') {
+    a.push({ status: 'DELIVERED', label: 'Доставлен', primary: true });
+  } else if (status === 'DELIVERED') {
+    a.push({ status: 'COMPLETED', label: 'Подтвердить выдачу', primary: true });
+  }
+  return a;
+}
+
+// ================================================================
+//   СОСТОЯНИЕ
+// ================================================================
+const state = {
+  page: 'pokazateli',
+  pokazateli: null,
+  orders: null,
+  currentBucket: 'new',
+  currentOrder: null,
+  period: 30,
+};
+
+// ================================================================
+//   АВТОРИЗАЦИЯ
+// ================================================================
+(async function init() {
+  try {
+    const r = await fetch('/api/auth/me');
+    if (!r.ok) { window.location.href = '/login.html'; return; }
+    const data = await r.json();
+    document.getElementById('userName').textContent = data.user.name || 'Менеджер';
+    document.body.classList.add('ready');
+    loadPokazateli();
+  } catch {
+    window.location.href = '/login.html';
+  }
+})();
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+}
+
+// ================================================================
+//   НАВИГАЦИЯ
+// ================================================================
+const PAGE_TITLES = {
+  pokazateli: 'Показатели',
+  orders: 'Заказы',
+  settings: 'Настройки',
+};
+
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => switchPage(item.dataset.page));
+});
+
+function switchPage(page) {
+  state.page = page;
+  document.querySelectorAll('.nav-item').forEach(n =>
+    n.classList.toggle('active', n.dataset.page === page)
+  );
+  document.querySelectorAll('.page').forEach(p =>
+    p.classList.toggle('active', p.id === 'page-' + page)
+  );
+  document.getElementById('topbarTitle').textContent = PAGE_TITLES[page] || '';
+
+  if (page === 'pokazateli' && !state.pokazateli) loadPokazateli();
+  if (page === 'orders' && !state.orders) loadOrders();
+}
+
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  if (state.page === 'pokazateli') { state.pokazateli = null; loadPokazateli(); }
+  if (state.page === 'orders') { state.orders = null; loadOrders(); }
+});
+
+document.getElementById('periodSelect').addEventListener('change', (e) => {
+  state.period = parseInt(e.target.value, 10);
+  state.orders = null;
+  state.pokazateli = null;
+  if (state.page === 'orders') loadOrders();
+  else loadPokazateli();
+});
+
+// ================================================================
+//   ПОКАЗАТЕЛИ
+// ================================================================
+async function loadPokazateli() {
+  const c = document.getElementById('pokazateliContent');
+  c.innerHTML = '<div class="pk-section" style="text-align:center; padding: 60px;"><span class="spinner"></span> &nbsp;Загрузка из Kaspi…</div>';
+  try {
+    const r = await fetch('/api/pokazateli');
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
+    state.pokazateli = data;
+    renderPokazateli(data);
+    updateBadges(data.badges);
+  } catch (err) {
+    c.innerHTML = `<div class="error-box"><b>Ошибка:</b> ${err.message}</div>`;
+  }
+}
+
+function updateBadges(badges) {
+  if (!badges) return;
+  const b = document.getElementById('navBadgeOrders');
+  const total = (badges.new || 0) + (badges.packing || 0);
+  if (total > 0) { b.style.display = ''; b.textContent = total; }
+  else b.style.display = 'none';
+}
+
+function buildChartPath(values, maxVal) {
+  if (!values.length) return '';
+  const W = 700, H = 240;
+  const step = W / (values.length - 1);
+  return values.map((v, i) => {
+    const x = i * step;
+    const y = maxVal === 0 ? H : H - (v / maxVal) * H;
+    return `${i === 0 ? 'M' : 'L'}${x},${y}`;
+  }).join(' ');
+}
+
+function metricBlock(label, m, compareLabel) {
+  return `
+    <div class="pk-metric-block">
+      <div class="pk-metric-label">${label}</div>
+      <div class="pk-metric-row">
+        <div class="pk-metric-num">
+          <div class="pk-value">${m.count}</div>
+          <div class="pk-unit">${plural(m.count, ['продажа', 'продажи', 'продаж'])}</div>
+        </div>
+        <div class="pk-metric-num">
+          <div class="pk-value">${fmtNum(m.revenue)}</div>
+          <div class="pk-unit">тенге</div>
+        </div>
+      </div>
+      <div class="pk-metric-change ${m.direction}">
+        <span class="pk-arrow ${m.direction}"></span>
+        <span class="mono">${fmtNum(Math.abs(m.diff))} ₸ (${Math.abs(m.diffPct)}%)</span>
+        <small>${compareLabel}</small>
+      </div>
+    </div>`;
+}
+
+function renderPokazateli(data) {
+  const maxChart = Math.max(...data.chart.current, ...data.chart.previous, 1);
+  const yLabels = [4, 3, 2, 1, 0].map(i => Math.round((maxChart / 4) * i));
+  const dots = data.chart.current.map((v, i) => {
+    const x = i * (700 / 6);
+    const y = maxChart === 0 ? 240 : 240 - (v / maxChart) * 240;
+    return `<circle cx="${x}" cy="${y}" r="4" fill="#f59e0b"/>`;
+  }).join('');
+
+  const todayLabel = `Сегодня, ${new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}`;
+
+  const overdueRows = data.overdue.list.length ? data.overdue.list.map(o => `
+    <div class="pk-table-row clickable-row" onclick="openOrderById('${o.id}', '${o.code}')">
+      <span><b>${o.code}</b></span>
+      <span class="pk-num">${fmtNum(o.sum)} ₸</span>
+      <span class="pk-num">${fmtDateShort(o.date)}</span>
+      <span class="pk-num" style="color: ${o.daysOverdue >= 3 ? 'var(--red)' : 'var(--accent)'}">${o.daysOverdue}</span>
+    </div>`).join('') : '<div class="pk-empty">Просроченных нет 🎉</div>';
+
+  const returnsRows = data.returns.list.length ? data.returns.list.map(o => `
+    <div class="pk-table-row" style="grid-template-columns: 1fr 100px 90px">
+      <span><b>${o.code}</b></span>
+      <span class="pk-num">${fmtNum(o.sum)} ₸</span>
+      <span class="pk-num">${fmtDateShort(o.date)}</span>
+    </div>`).join('') : '<div class="pk-empty">Возвратов нет 🎉</div>';
+
+  document.getElementById('pokazateliContent').innerHTML = `
+    <div class="pk-section">
+      <div class="pk-section-header">
+        <div class="pk-section-title">Продажи</div>
+      </div>
+      <div class="pk-sales-grid">
+        <div>
+          ${metricBlock(todayLabel, data.sales.today, 'По сравнению со вчера')}
+          ${metricBlock('На этой неделе', data.sales.week, 'По сравнению с прошлой неделей')}
+          ${metricBlock('В этом месяце', data.sales.month, 'По сравнению с прошлым месяцем')}
+        </div>
+        <div>
+          <div class="pk-chart-container">
+            <div class="pk-chart-yaxis">
+              ${yLabels.map(v => `<span>${fmtNum(v)}</span>`).join('')}
+            </div>
+            <svg class="pk-chart-svg" viewBox="0 0 700 240" preserveAspectRatio="none">
+              <g stroke="#20202a" stroke-width="1">
+                <line x1="0" y1="0" x2="700" y2="0"/>
+                <line x1="0" y1="60" x2="700" y2="60"/>
+                <line x1="0" y1="120" x2="700" y2="120"/>
+                <line x1="0" y1="180" x2="700" y2="180"/>
+                <line x1="0" y1="240" x2="700" y2="240"/>
+              </g>
+              <path d="${buildChartPath(data.chart.previous, maxChart)}" fill="none" stroke="#6b6b76" stroke-width="1.8" stroke-dasharray="4 4"/>
+              <path d="${buildChartPath(data.chart.current, maxChart)}" fill="none" stroke="#f59e0b" stroke-width="2.5"/>
+              ${dots}
+            </svg>
+            <div class="pk-chart-xaxis">${WEEKDAYS.map(d => `<span>${d}</span>`).join('')}</div>
+          </div>
+          <div class="pk-chart-legend">
+            <div class="pk-legend-item"><span class="pk-legend-line" style="background:#f59e0b"></span> Эта неделя</div>
+            <div class="pk-legend-item"><span class="pk-legend-line" style="background:transparent; border-top: 2px dashed #6b6b76"></span> Прошлая неделя</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pk-twocol">
+      <div class="pk-section">
+        <div class="pk-section-header"><div class="pk-section-title">Просроченные заказы</div></div>
+        <div class="pk-overdue-stat">
+          <div class="pk-metric-num"><div class="pk-value">${data.overdue.count}</div><div class="pk-unit">${plural(data.overdue.count, ['заказ', 'заказа', 'заказов'])}</div></div>
+          <div class="pk-metric-num"><div class="pk-value">${fmtNum(data.overdue.sum)}</div><div class="pk-unit">тенге</div></div>
+        </div>
+        ${data.overdue.list.length ? `<div class="pk-table-header"><span>Код</span><span style="text-align:right">Сумма</span><span style="text-align:right">Дата</span><span style="text-align:right">Дней</span></div>` : ''}
+        ${overdueRows}
+      </div>
+
+      <div class="pk-section">
+        <div class="pk-section-header"><div class="pk-section-title">Возвраты</div></div>
+        <div class="pk-overdue-stat">
+          <div class="pk-metric-num"><div class="pk-value">${data.returns.count}</div><div class="pk-unit">${plural(data.returns.count, ['возврат', 'возврата', 'возвратов'])}</div></div>
+          <div class="pk-metric-num"><div class="pk-value">${fmtNum(data.returns.sum)}</div><div class="pk-unit">тенге</div></div>
+        </div>
+        ${data.returns.list.length ? `<div class="pk-table-header" style="grid-template-columns: 1fr 100px 90px"><span>Код</span><span style="text-align:right">Сумма</span><span style="text-align:right">Дата</span></div>` : ''}
+        ${returnsRows}
+      </div>
+    </div>
+
+    <div class="pk-footer-info">Заказов проанализировано: ${data.totalOrders} · Обновлено: ${new Date(data.updatedAt).toLocaleString('ru-RU')}</div>
+  `;
+
+  // Click handlers для просроченных
+  document.querySelectorAll('.clickable-row').forEach(el => {
+    el.style.cursor = 'pointer';
+  });
+}
+
+// ================================================================
+//   ЗАКАЗЫ
+// ================================================================
+async function loadOrders() {
+  const c = document.getElementById('ordersContent');
+  c.innerHTML = '<div class="empty"><span class="spinner"></span> &nbsp;Загрузка заказов…</div>';
+  try {
+    const r = await fetch(`/api/orders?days=${state.period}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Ошибка');
+    state.orders = data;
+    renderOrders();
+  } catch (err) {
+    c.innerHTML = `<div class="error-box"><b>Ошибка:</b> ${err.message}</div>`;
+  }
+}
+
+function renderOrders() {
+  const data = state.orders;
+  const tabsHtml = Object.entries(BUCKET_LABEL).map(([key, label]) => {
+    const count = data.buckets[key]?.count || 0;
+    // Считаем сколько просроченных в "На упаковке" — показываем красным
+    let extraClass = '';
+    if (key === 'packing' && count > 0) {
+      const overdueCount = (data.buckets.packing.items || []).filter(o => o._overdue).length;
+      if (overdueCount > 0) extraClass = ' has-overdue';
+    }
+    return `<div class="tab${extraClass} ${state.currentBucket === key ? 'active' : ''}" data-bucket="${key}">
+      ${label}<span class="count">${count}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('ordersContent').innerHTML = `
+    <div class="tabs" id="orderTabs">${tabsHtml}</div>
+    <div class="table-wrap">
+      <table class="data-table" id="ordersTable">
+        <thead>
+          <tr>
+            <th>Код</th>
+            <th>Покупатель</th>
+            <th>Дата</th>
+            <th>Доставка</th>
+            <th style="text-align:right">Сумма</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody id="ordersTbody"></tbody>
+      </table>
+    </div>
+  `;
+
+  document.querySelectorAll('#orderTabs .tab').forEach(t => {
+    t.addEventListener('click', () => {
+      state.currentBucket = t.dataset.bucket;
+      document.querySelectorAll('#orderTabs .tab').forEach(x =>
+        x.classList.toggle('active', x === t)
+      );
+      renderOrdersTable();
+    });
+  });
+
+  renderOrdersTable();
+}
+
+function renderOrdersTable() {
+  const tbody = document.getElementById('ordersTbody');
+  const list = state.orders.buckets[state.currentBucket]?.items || [];
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">В категории «${BUCKET_LABEL[state.currentBucket]}» заказов нет</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(o => {
+    const a = o.attributes || {};
+    const cust = a.customer
+      ? ((a.customer.firstName || '') + ' ' + (a.customer.lastName || '')).trim()
+      : '—';
+    const delivery = a.isKaspiDelivery ? 'Kaspi' : (a.deliveryMode || '—');
+    const overdueLabel = o._overdue
+      ? `<span class="pill pill-cancel" style="margin-left: 6px">просрочка ${o._daysOverdue}д</span>`
+      : '';
+    return `<tr class="clickable ${o._overdue ? 'row-overdue' : ''}" onclick="openOrder('${o.id}', ${JSON.stringify(o).replace(/"/g, '&quot;')})">
+      <td><b>${a.code || o.id}</b>${overdueLabel}</td>
+      <td>${cust}</td>
+      <td>${fmtDate(a.creationDate)}</td>
+      <td style="color: var(--text-mid); font-size: 12.5px;">${delivery}</td>
+      <td style="text-align:right; font-weight: 600;" class="mono">${fmtMoney(a.totalPrice)}</td>
+      <td><span class="pill ${statusPill(a.status)}">${STATUS_RU[a.status] || a.status || '—'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ================================================================
+//   МОДАЛКА ЗАКАЗА
+// ================================================================
+function openOrderById(orderId, code) {
+  // Найти заказ во всех корзинах
+  if (!state.orders) {
+    state.currentOrder = { id: orderId, code, attributes: {} };
+    document.getElementById('orderModal').classList.add('active');
+    document.getElementById('modalTitle').textContent = `Заказ ${code}`;
+    document.getElementById('modalBody').innerHTML = '<div class="empty">Загрузите вкладку «Заказы» для деталей.</div>';
+    return;
+  }
+  for (const bucket of Object.values(state.orders.buckets)) {
+    const found = (bucket.items || []).find(o => o.id === orderId);
+    if (found) { openOrder(orderId, found); return; }
+  }
+  // Не нашли — открываем с минимумом
+  state.currentOrder = { id: orderId, attributes: { code } };
+  showOrderModal();
+}
+
+function openOrder(orderId, orderObj) {
+  if (typeof orderObj === 'string') {
+    try { orderObj = JSON.parse(orderObj.replace(/&quot;/g, '"')); } catch {}
+  }
+  state.currentOrder = orderObj;
+  showOrderModal();
+}
+
+function showOrderModal() {
+  const o = state.currentOrder;
+  const a = o.attributes || {};
+  document.getElementById('orderModal').classList.add('active');
+  document.getElementById('modalTitle').textContent = `Заказ ${a.code || o.id}`;
+
+  const cust = a.customer
+    ? ((a.customer.firstName || '') + ' ' + (a.customer.lastName || '')).trim() + (a.customer.cellPhone ? ' · ' + a.customer.cellPhone : '')
+    : '—';
+
+  const actions = availableActions(a.status, a.state);
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <div class="modal-section-title">Информация</div>
+      <div class="info-grid">
+        <div class="label">Код:</div><div class="value mono">${a.code || o.id}</div>
+        <div class="label">Покупатель:</div><div class="value">${cust}</div>
+        <div class="label">Дата:</div><div class="value">${fmtDate(a.creationDate)}</div>
+        <div class="label">Сумма:</div><div class="value mono">${fmtMoney(a.totalPrice)}</div>
+        <div class="label">Доставка:</div><div class="value">${a.deliveryMode || '—'}</div>
+        <div class="label">Состояние:</div><div class="value"><span class="pill pill-delivery">${STATE_RU[a.state] || a.state || '—'}</span></div>
+        <div class="label">Статус:</div><div class="value"><span class="pill ${statusPill(a.status)}">${STATUS_RU[a.status] || a.status || '—'}</span></div>
+      </div>
+    </div>
+
+    ${actions.length ? `
+      <div class="modal-section">
+        <div class="modal-section-title">Действия</div>
+        <div class="action-buttons">
+          ${actions.map(act => `
+            <button class="btn ${act.primary ? 'btn-primary' : act.danger ? 'btn-danger' : ''}"
+                    onclick="changeStatus('${act.status}', ${JSON.stringify(act.label).replace(/"/g, '&quot;')})">
+              ${act.label}
+            </button>
+          `).join('')}
+        </div>
+      </div>` : ''}
+
+    <div id="statusResult" style="font-size: 13px;"></div>
+  `;
+}
+
+async function changeStatus(newStatus, label) {
+  const o = state.currentOrder;
+  if (!o) return;
+  const code = o.attributes?.code || o.id;
+  const txt = newStatus === 'CANCELLED'
+    ? `Точно отменить заказ ${code}?`
+    : `Изменить статус заказа ${code} → «${label}»?`;
+  if (!confirm(txt)) return;
+
+  const box = document.getElementById('statusResult');
+  box.innerHTML = '<div style="color: var(--text-mid); margin-top: 10px;"><span class="spinner"></span> &nbsp;Меняю статус…</div>';
+
+  try {
+    const r = await fetch('/api/order-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: o.id,
+        code,
+        status: newStatus,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      let extra = '';
+      if (data.details?.errors) {
+        extra = ' — ' + data.details.errors.map(e => e.detail || e.title).join('; ');
+      }
+      box.innerHTML = `<div class="error-box" style="margin-top: 10px;">Ошибка: ${data.error || r.status}${extra}</div>`;
+      return;
+    }
+    box.innerHTML = `<div class="success-box" style="margin-top: 10px;">✓ Статус изменён. Обновляю данные…</div>`;
+    state.orders = null;
+    state.pokazateli = null;
+    setTimeout(() => {
+      closeModal();
+      if (state.page === 'orders') loadOrders();
+      else loadPokazateli();
+    }, 1200);
+  } catch (e) {
+    box.innerHTML = `<div class="error-box" style="margin-top: 10px;">Ошибка сети: ${e.message}</div>`;
+  }
+}
+
+function closeModal() {
+  document.getElementById('orderModal').classList.remove('active');
+  state.currentOrder = null;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
+
+// ================================================================
+//   НАСТРОЙКИ — тест связи
+// ================================================================
+async function testConnection() {
+  const box = document.getElementById('testResult');
+  box.innerHTML = '<span class="spinner"></span> &nbsp;Проверяю…';
+  try {
+    const r = await fetch('/api/kaspi-test');
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      box.innerHTML = `<div class="success-box">✓ ${data.message}</div>`;
+    } else {
+      box.innerHTML = `<div class="error-box">✗ ${data.error || 'Ошибка'}</div>`;
+    }
+  } catch (e) {
+    box.innerHTML = `<div class="error-box">✗ Сервер недоступен: ${e.message}</div>`;
+  }
+}
+</script>
+
+</body>
+</html>
