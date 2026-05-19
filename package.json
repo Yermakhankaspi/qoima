@@ -1,9 +1,0 @@
-{
-  "name": "qoima",
-  "version": "1.0.0",
-  "description": "Панель продавца Kaspi — аналитика и управление заказами",
-  "private": true,
-  "engines": {
-    "node": "18.x"
-  }
-}
