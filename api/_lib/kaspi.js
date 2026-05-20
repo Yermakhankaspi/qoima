@@ -107,19 +107,27 @@ export async function getOrders(fromMs, toMs, state = null) {
 }
 
 /**
- * Изменить статус заказа.
+ * Изменить статус заказа (или другие поля типа `assembled`).
+ *
+ * Для перевода в "Передачу" (готов к курьеру) — нужно отправить assembled=true.
+ * Для смены статуса — поле status.
  */
 export async function updateOrderStatus(orderId, code, newStatus) {
+  // Специальная команда — пометить как собранный
+  // (в Kaspi кабинете это кнопка "Собран")
+  let attributes;
+  if (newStatus === 'ASSEMBLE') {
+    attributes = { code, assembled: true, status: 'ACCEPTED_BY_MERCHANT' };
+  } else {
+    attributes = { code, status: newStatus };
+  }
   return kaspiFetch(`/orders/${orderId}`, {
     method: 'PATCH',
     body: JSON.stringify({
       data: {
         type: 'orders',
         id: orderId,
-        attributes: {
-          code,
-          status: newStatus,
-        },
+        attributes,
       },
     }),
   });
@@ -132,27 +140,49 @@ export async function getOrderEntries(orderId) {
   return kaspiFetch(`/orders/${orderId}/entries`);
 }
 
-// ============ Утилиты по датам ============
+// ============ Утилиты по датам (в часовом поясе Алматы, UTC+5) ============
+//
+// На сервере Vercel время в UTC. У пользователя в Казахстане UTC+5.
+// Если использовать обычный setHours(0,0,0,0), сервер посчитает "начало дня" по UTC,
+// а это не совпадет с тем что пользователь видит в Kaspi.
+// Поэтому смещаем все вычисления на +5 часов.
 
+const TZ_OFFSET_MS = 5 * 60 * 60 * 1000; // UTC+5 для Алматы / Астаны
+
+/**
+ * Начало дня по Алматы — возвращает timestamp в UTC.
+ */
 export function startOfDay(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x.getTime();
+  const ms = d.getTime();
+  // Смещаем в "виртуальное UTC", где время как в Алматы
+  const localMs = ms + TZ_OFFSET_MS;
+  // Округляем до начала дня
+  const dayStart = Math.floor(localMs / MS_PER_DAY) * MS_PER_DAY;
+  // Возвращаем обратно в реальный UTC
+  return dayStart - TZ_OFFSET_MS;
 }
 
+/**
+ * Начало недели (понедельник) по Алматы.
+ */
 export function startOfWeek(d = new Date()) {
-  const x = new Date(d);
-  const day = (x.getDay() + 6) % 7; // 0 = пн
-  x.setDate(x.getDate() - day);
-  x.setHours(0, 0, 0, 0);
-  return x.getTime();
+  const dayStart = startOfDay(d);
+  // Получаем день недели по Алматы
+  const localDate = new Date(dayStart + TZ_OFFSET_MS);
+  const dayOfWeek = (localDate.getUTCDay() + 6) % 7; // 0 = пн
+  return dayStart - dayOfWeek * MS_PER_DAY;
 }
 
+/**
+ * Начало месяца по Алматы (1-е число 00:00).
+ */
 export function startOfMonth(d = new Date()) {
-  const x = new Date(d);
-  x.setDate(1);
-  x.setHours(0, 0, 0, 0);
-  return x.getTime();
+  const ms = d.getTime();
+  const localMs = ms + TZ_OFFSET_MS;
+  const localDate = new Date(localMs);
+  localDate.setUTCDate(1);
+  localDate.setUTCHours(0, 0, 0, 0);
+  return localDate.getTime() - TZ_OFFSET_MS;
 }
 
 // ============ Аналитические функции ============
@@ -167,14 +197,16 @@ export function sumRevenue(orders) {
 }
 
 /**
- * Группировка выручки по дням недели (0=пн, 6=вс).
+ * Группировка выручки по дням недели (0=пн, 6=вс) — по часовому поясу Алматы.
  */
 export function groupByWeekday(orders) {
   const days = [0, 0, 0, 0, 0, 0, 0];
   for (const o of orders) {
     if (o.attributes.status !== 'COMPLETED') continue;
-    const d = new Date(o.attributes.creationDate);
-    const idx = (d.getDay() + 6) % 7;
+    // Конвертируем дату заказа в Алматы (UTC+5) для правильного дня недели
+    const almatyTs = o.attributes.creationDate + TZ_OFFSET_MS;
+    const d = new Date(almatyTs);
+    const idx = (d.getUTCDay() + 6) % 7; // 0 = пн
     days[idx] += o.attributes.totalPrice || 0;
   }
   return days;
